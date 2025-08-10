@@ -1,0 +1,35 @@
+[Unit]
+Description=EcoBox Server
+Documentation=https://github.com/your-username/ecobox-server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ecobox
+Group=ecobox
+WorkingDirectory=/opt/ecobox-server
+ExecStart=/opt/ecobox-server/dashboard -config /opt/ecobox-server/config.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=5
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ecobox-server/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ecobox-server
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,96 @@
+[dashboard]
+port = 8081
+update_interval = 30
+wol_retry_interval = 10
+wol_max_retries = 5
+log_level = "debug"
+
+# Authentication settings
+# Identity-aware proxy: "tailscale", "authentik", "cloudflare", "none"
+iap_auth = "none"
+session_key_file = "sessionkey.conf"
+password_file = "passwd.conf"
+
+[[servers]]
+id = "homelab-host"
+name = "Homelab Host"
+hostname = "192.168.68.100"
+mac_address = "3C:7C:3F:23:C4:B1"
+ssh_user = "root"
+ssh_port = 22
+# ssh_key_path = "/path/to/private/key"
+
+  [[servers.services]]
+  name = "SSH"
+  port = 22
+  type = "ssh"
+
+  [[servers.services]]
+  name = "Web Interface"
+  port = 9000
+  type = "http"
+
+  [[servers.services]]
+  name = "HTTPS"
+  port = 443
+  type = "https"
+
+[[servers]]
+id = "vm-plex"
+name = "Plex VM"
+hostname = "192.168.1.101"
+mac_address = "11:22:33:44:55:66"
+parent_server_id = "homelab-host"
+ssh_user = "root"
+ssh_port = 22
+
+  [[servers.services]]
+  name = "Plex"
+  port = 32400
+  type = "http"
+
+  [[servers.services]]
+  name = "SSH"
+  port = 22
+  type = "ssh"
+
+[[servers]]
+id = "nas-server"
+name = "NAS Server"
+hostname = "192.168.1.102"
+mac_address = "22:33:44:55:66:77"
+ssh_user = "admin"
+ssh_port = 22
+
+  [[servers.services]]
+  name = "SMB"
+  port = 445
+  type = "smb"
+
+  [[servers.services]]
+  name = "SSH"
+  port = 22
+  type = "ssh"
+
+  [[servers.services]]
+  name = "Web UI"
+  port = 8080
+  type = "http"
+
+[[servers]]
+id = "gaming-pc"
+name = "Gaming PC"
+hostname = "192.168.1.103"
+mac_address = "33:44:55:66:77:88"
+ssh_user = "user"
+ssh_port = 22
+
+  [[servers.services]]
+  name = "RDP"
+  port = 3389
+  type = "rdp"
+
+  [[servers.services]]
+  name = "Steam Remote Play"
+  port = 27036
+  type = "custom"

@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  ecobox-server:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.toml:/root/config.toml:ro
+      - ./ssh-keys:/root/.ssh:ro
+    environment:
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    network_mode: host  # Required for Wake-on-LAN to work properly
+    
+  # Optional: nginx reverse proxy with SSL
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - ecobox-server
+    restart: unless-stopped
+    profiles:
+      - with-proxy
