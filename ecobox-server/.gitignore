@@ -1,5 +1,6 @@
 passwd.conf
 testuser_cookies.txt
+*.csv.gz
 
 # Binaries for programs and plugins
 *.exe
