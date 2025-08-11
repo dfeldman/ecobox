@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ecobox-server/internal/auth"
+	"ecobox-server/internal/metrics"
 	"ecobox-server/internal/models"
 	"ecobox-server/internal/monitor"
 	"github.com/gorilla/mux"
@@ -33,6 +34,9 @@ func (ws *WebServer) handleIndex(w http.ResponseWriter, r *http.Request) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Dashboard</title>
     <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/static/css/metrics.css">
+	    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
 </head>
 <body>
     <div class="container">
@@ -62,6 +66,7 @@ func (ws *WebServer) handleIndex(w http.ResponseWriter, r *http.Request) {
     </div>
 
     <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/metrics.js"></script>
     <script>
         function logout() {
             if (confirm('Are you sure you want to logout?')) {
@@ -270,13 +275,28 @@ func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // sendInitialData sends current server states to a new WebSocket client
 func (ws *WebServer) sendInitialData(conn *websocket.Conn) {
 	servers := ws.storage.GetAllServers()
+	metricsManager := ws.monitor.GetMetricsManager()
 	
 	for _, server := range servers {
+		// Get current metrics for this server
+		var metrics map[string]float64
+		if metricsManager != nil {
+			if currentMetrics, err := metricsManager.GetLatestValues(server.ID); err != nil {
+				ws.logger.Errorf("Failed to get latest metrics for server %s: %v", server.ID, err)
+				metrics = make(map[string]float64)
+			} else {
+				metrics = currentMetrics
+			}
+		} else {
+			metrics = make(map[string]float64)
+		}
+
 		update := monitor.ServerUpdate{
 			ServerID: server.ID,
 			State:    server.CurrentState,
 			Services: server.Services,
 			Server:   server,
+			Metrics:  metrics,
 		}
 
 		message, err := json.Marshal(update)
@@ -300,4 +320,188 @@ func (ws *WebServer) writeJSONResponse(w http.ResponseWriter, statusCode int, da
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		ws.logger.Errorf("Failed to encode JSON response: %v", err)
 	}
+}
+
+// MetricDataPoint represents a single metric data point for the frontend
+type MetricDataPoint struct {
+	Timestamp string  `json:"timestamp"` // ISO 8601 format
+	Value     float64 `json:"value"`
+}
+
+// MetricsResponse represents the complete metrics response for the frontend
+type MetricsResponse struct {
+	Memory  []MetricDataPoint `json:"memory"`
+	CPU     []MetricDataPoint `json:"cpu"`
+	Network []MetricDataPoint `json:"network"`
+	Wattage []MetricDataPoint `json:"wattage"`
+}
+
+// handleGetMetrics returns metrics data for a specific server and time range
+func (ws *WebServer) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	serverID := r.URL.Query().Get("server")
+	startTimeStr := r.URL.Query().Get("start")
+	endTimeStr := r.URL.Query().Get("end")
+	
+	if serverID == "" {
+		response := APIResponse{
+			Success: false,
+			Message: "Missing required parameter: server",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+	
+	if startTimeStr == "" || endTimeStr == "" {
+		response := APIResponse{
+			Success: false,
+			Message: "Missing required parameters: start and end time",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+	
+	// Parse time parameters
+	startTime, err := time.Parse(time.RFC3339, startTimeStr)
+	if err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: "Invalid start time format. Use ISO 8601 format.",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+	
+	endTime, err := time.Parse(time.RFC3339, endTimeStr)
+	if err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: "Invalid end time format. Use ISO 8601 format.",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+	
+	// Validate time range
+	if endTime.Before(startTime) {
+		response := APIResponse{
+			Success: false,
+			Message: "End time must be after start time",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+	
+	// Get metrics manager from monitor
+	metricsManager := ws.monitor.GetMetricsManager()
+	if metricsManager == nil {
+		response := APIResponse{
+			Success: false,
+			Message: "Metrics system not available",
+		}
+		ws.writeJSONResponse(w, http.StatusServiceUnavailable, response)
+		return
+	}
+	
+	// Calculate appropriate time period for aggregation
+	timeRange := endTime.Sub(startTime)
+	timePeriodSec := ws.calculateTimePeriod(timeRange)
+	
+	// Fetch metrics data for each metric type
+	metricsResponse := MetricsResponse{
+		Memory:  []MetricDataPoint{},
+		CPU:     []MetricDataPoint{},
+		Network: []MetricDataPoint{},
+		Wattage: []MetricDataPoint{},
+	}
+	
+	// Get memory metrics
+	if memoryData, err := metricsManager.GetSummary(serverID, metrics.StandardMetrics.Memory, startTime, endTime, timePeriodSec); err == nil {
+		metricsResponse.Memory = ws.convertSummaryToDataPoints(memoryData)
+	}
+	
+	// Get CPU metrics  
+	if cpuData, err := metricsManager.GetSummary(serverID, metrics.StandardMetrics.CPU, startTime, endTime, timePeriodSec); err == nil {
+		metricsResponse.CPU = ws.convertSummaryToDataPoints(cpuData)
+	}
+	
+	// Get network metrics
+	if networkData, err := metricsManager.GetSummary(serverID, metrics.StandardMetrics.Network, startTime, endTime, timePeriodSec); err == nil {
+		metricsResponse.Network = ws.convertSummaryToDataPoints(networkData)
+	}
+	
+	// Get wattage metrics
+	if wattageData, err := metricsManager.GetSummary(serverID, metrics.StandardMetrics.Wattage, startTime, endTime, timePeriodSec); err == nil {
+		metricsResponse.Wattage = ws.convertSummaryToDataPoints(wattageData)
+	}
+	
+	response := APIResponse{
+		Success: true,
+		Data:    metricsResponse,
+	}
+	
+	ws.writeJSONResponse(w, http.StatusOK, response)
+}
+
+// handleGetAvailableMetrics returns all available metrics for a server
+func (ws *WebServer) handleGetAvailableMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["server"]
+	
+	if serverName == "" {
+		response := APIResponse{
+			Success: false,
+			Message: "Missing server name",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+	
+	// Return all available metrics
+	availableMetrics := map[string]interface{}{
+		"frontend_metrics": metrics.FrontendMetrics(),
+		"all_metrics":     metrics.AllMetrics(),
+		"server":          serverName,
+	}
+	
+	response := APIResponse{
+		Success: true,
+		Data:    availableMetrics,
+	}
+	
+	ws.writeJSONResponse(w, http.StatusOK, response)
+}
+
+// calculateTimePeriod determines appropriate aggregation period based on time range
+func (ws *WebServer) calculateTimePeriod(timeRange time.Duration) int {
+	// For optimal performance, aim for 100-200 data points
+	hours := int(timeRange.Hours())
+	
+	if hours <= 2 {
+		return 60 // 1 minute intervals
+	} else if hours <= 12 {
+		return 300 // 5 minute intervals
+	} else if hours <= 48 {
+		return 1800 // 30 minute intervals
+	} else if hours <= 168 { // 1 week
+		return 3600 // 1 hour intervals
+	} else if hours <= 720 { // 1 month
+		return 14400 // 4 hour intervals
+	} else {
+		return 86400 // 1 day intervals
+	}
+}
+
+// convertSummaryToDataPoints converts metrics.Summary to MetricDataPoint format
+func (ws *WebServer) convertSummaryToDataPoints(summaries []metrics.Summary) []MetricDataPoint {
+	dataPoints := make([]MetricDataPoint, len(summaries))
+	
+	for i, summary := range summaries {
+		dataPoints[i] = MetricDataPoint{
+			Timestamp: summary.StartTime.Format(time.RFC3339),
+			Value:     summary.Average,
+		}
+	}
+	
+	return dataPoints
 }

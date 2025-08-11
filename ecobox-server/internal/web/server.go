@@ -108,6 +108,18 @@ func (ws *WebServer) setupRoutes() {
 	api.HandleFunc("/servers/{id}/suspend", ws.handleSuspendServer).Methods("POST")
 	api.HandleFunc("/servers/{id}", ws.handleGetServer).Methods("GET")
 	
+	// Metrics API routes (protected)
+	api.HandleFunc("/metrics", ws.handleGetMetrics).Methods("GET")
+	api.HandleFunc("/metrics/{server}/available", ws.handleGetAvailableMetrics).Methods("GET")
+	
+	// Debug: Add a simple test route to verify API subrouter works
+	api.HandleFunc("/debug-test", func(w http.ResponseWriter, r *http.Request) {
+		ws.writeJSONResponse(w, http.StatusOK, APIResponse{
+			Success: true,
+			Message: "Debug API route is working",
+		})
+	}).Methods("GET")
+	
 	// Authentication API routes (protected)
 	auth := api.PathPrefix("/auth").Subrouter()
 	auth.HandleFunc("/me", ws.handleGetCurrentUser).Methods("GET")

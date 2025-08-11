@@ -1,3 +1,6 @@
+passwd.conf
+testuser_cookies.txt
+
 # Binaries for programs and plugins
 *.exe
 *.exe~

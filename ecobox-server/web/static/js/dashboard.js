@@ -103,6 +103,13 @@ class NetworkDashboard {
                 </div>
             </div>
             
+            <div class="metrics-section" id="metrics-section-${server.id}">
+                <h4>Current Metrics</h4>
+                <div class="metrics-grid" id="metrics-grid-${server.id}">
+                    <!-- Metrics will be populated by WebSocket updates -->
+                </div>
+            </div>
+            
             ${server.recent_actions && server.recent_actions.length > 0 ? `
                 <details class="recent-actions">
                     <summary>Recent Actions (${server.recent_actions.length})</summary>
@@ -126,6 +133,9 @@ class NetworkDashboard {
             </button>
             <button class="btn btn-warning" onclick="dashboard.suspendServer('${server.id}')" ${!canSuspend ? 'disabled' : ''}>
                 Suspend
+            </button>
+            <button class="btn btn-info" onclick="dashboard.showMetrics('${server.id}', '${this.escapeHtml(server.name)}')">
+                Show Metrics
             </button>
         `;
     }
@@ -184,6 +194,95 @@ class NetworkDashboard {
         }
     }
 
+    showMetrics(serverId, serverName) {
+        this.createMetricsModal(serverId, serverName);
+    }
+
+    createMetricsModal(serverId, serverName) {
+        // Remove existing modal if present
+        const existingModal = document.getElementById('metrics-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        // Create modal HTML
+        const modal = document.createElement('div');
+        modal.id = 'metrics-modal';
+        modal.className = 'metrics-modal';
+        modal.innerHTML = `
+            <div class="metrics-modal-overlay" onclick="dashboard.closeMetricsModal()"></div>
+            <div class="metrics-modal-content">
+                <div class="metrics-modal-header">
+                    <h2>Metrics for ${this.escapeHtml(serverName)}</h2>
+                    <button class="close-btn" onclick="dashboard.closeMetricsModal()">✕</button>
+                </div>
+                <div class="metrics-dashboard-container">
+                    <div class="dashboard">
+                        <div class="header">
+                            <div class="title">System Metrics</div>
+                            <div class="controls">
+                                <div class="nav-controls">
+                                    <button id="prevButton" class="nav-button">
+                                        ← Prev
+                                    </button>
+                                    <div id="currentRange" class="current-range">Last 1 Hour</div>
+                                    <button id="nextButton" class="nav-button">
+                                        Next →
+                                    </button>
+                                </div>
+                                <div class="control-group">
+                                    <label>Period:</label>
+                                    <select id="period">
+                                        <option value="1h">Last 1 Hour</option>
+                                        <option value="6h">Last 6 Hours</option>
+                                        <option value="24h">Last 24 Hours</option>
+                                        <option value="7d">Last 7 Days</option>
+                                        <option value="30d">Last 30 Days</option>
+                                        <option value="custom">Custom Range</option>
+                                    </select>
+                                </div>
+                                <div class="control-group custom-range" style="display: none;">
+                                    <label>Start Time:</label>
+                                    <input type="datetime-local" id="startTime">
+                                </div>
+                                <div class="control-group custom-range" style="display: none;">
+                                    <label>End Time:</label>
+                                    <input type="datetime-local" id="endTime">
+                                </div>
+                            </div>
+                        </div>
+                        <div id="metricsGrid" class="metrics-grid"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Initialize metrics dashboard for this specific server
+        const container = modal.querySelector('.metrics-dashboard-container');
+        
+        // Wait for modal to be added to DOM, then initialize
+        setTimeout(() => {
+            window.metricsInstance = new MetricsDashboard(container, {
+                defaultServer: serverId
+            });
+        }, 100);
+
+        // Show modal
+        modal.style.display = 'flex';
+    }
+
+    closeMetricsModal() {
+        const modal = document.getElementById('metrics-modal');
+        if (modal) {
+            modal.remove();
+        }
+        if (window.metricsInstance) {
+            window.metricsInstance = null;
+        }
+    }
+
     connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -223,7 +322,43 @@ class NetworkDashboard {
             
             // Update the UI for this specific server
             this.updateServerCard(update.server_id);
+            
+            // Update metrics if available
+            if (update.metrics) {
+                this.updateServerMetrics(update.server_id, update.metrics);
+            }
         }
+    }
+
+    updateServerMetrics(serverId, metrics) {
+        const metricsGrid = document.getElementById(`metrics-grid-${serverId}`);
+        if (!metricsGrid) return;
+
+        // Clear existing metrics
+        metricsGrid.innerHTML = '';
+
+        // Define metric display configurations - always show these in this order
+        const metricConfigs = {
+            'cpu': { label: 'CPU', unit: '%', color: '#3b82f6' },
+            'memory': { label: 'Memory', unit: '%', color: '#10b981' },
+            'network': { label: 'Network', unit: 'MB/s', color: '#f59e0b' },
+            'wattage': { label: 'Power', unit: 'W', color: '#ef4444' }
+        };
+
+        // Always display all expected metrics, even if no data available
+        Object.entries(metricConfigs).forEach(([key, config]) => {
+            const value = metrics && metrics[key] !== undefined ? metrics[key] : null;
+            
+            const metricElement = document.createElement('div');
+            metricElement.className = 'metric-item';
+            metricElement.innerHTML = `
+                <div class="metric-label">${config.label}</div>
+                <div class="metric-value" style="color: ${value !== null ? config.color : '#9ca3af'}">
+                    ${value !== null ? (typeof value === 'number' ? value.toFixed(1) : value) + config.unit : '--'}
+                </div>
+            `;
+            metricsGrid.appendChild(metricElement);
+        });
     }
 
     updateServerCard(serverId) {

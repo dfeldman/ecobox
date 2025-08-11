@@ -3,7 +3,6 @@ package command
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -111,7 +110,8 @@ func (c *Commander) GetCPUUsage(host string, port int, user string, keyPath stri
 
 	switch systemType {
 	case models.SystemTypeLinux, models.SystemTypeProxmox:
-		cmd = "sudo sh -c \"grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END {print usage}'\""
+		// Use a simpler approach with vmstat for CPU usage
+		cmd = "vmstat 1 2 | tail -1 | awk '{print 100-$15}'"
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 	case models.SystemTypeWindows:
 		cmd = "powershell.exe -Command \"Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average\""
@@ -146,7 +146,7 @@ func (c *Commander) GetLoadAverage(host string, port int, user string, keyPath s
 	c.logger.Debug("Getting load average")
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd := "cat /proc/loadavg"
 		output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -178,7 +178,7 @@ func (c *Commander) GetLoadAverage(host string, port int, user string, keyPath s
 		}
 		return loads, nil
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		// Windows doesn't have load average, but we can get processor queue length as an approximation
 		cmd := `powershell.exe -Command "(Get-Counter '\System\Processor Queue Length').CounterSamples[0].CookedValue"`
 		output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
@@ -221,7 +221,7 @@ func (c *Commander) GetMemoryUsage(host string, port int, user string, keyPath s
 	var err error
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "sudo free -b | grep '^Mem:'"
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -243,14 +243,14 @@ func (c *Commander) GetMemoryUsage(host string, port int, user string, keyPath s
 		free := total - used
 		usedPercent := float64(used) / float64(total) * 100
 
-		return &MemoryInfo{
+		return &models.MemoryInfo{
 			Total:       total,
 			Used:        used,
 			Free:        free,
 			UsedPercent: usedPercent,
 		}, nil
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		cmd = `powershell.exe -Command "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory | ConvertTo-Json"`
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -283,7 +283,7 @@ func (c *Commander) GetMemoryUsage(host string, port int, user string, keyPath s
 		used := total - free
 		usedPercent := float64(used) / float64(total) * 100
 
-		return &MemoryInfo{
+		return &models.MemoryInfo{
 			Total:       total,
 			Used:        used,
 			Free:        free,
@@ -303,7 +303,7 @@ func (c *Commander) GetNetworkUsage(host string, port int, user string, keyPath 
 	c.logger.Debug("Getting network usage")
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		// Get initial readings
 		cmd1 := "cat /proc/net/dev | grep -v lo: | awk 'NR>2 {rx+=$2; tx+=$10} END {print rx, tx}'"
 		output1, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd1)
@@ -350,14 +350,14 @@ func (c *Commander) GetNetworkUsage(host string, port int, user string, keyPath 
 		mbpsRecv := float64(rx2-rx1) / 1024 / 1024
 		mbpsSent := float64(tx2-tx1) / 1024 / 1024
 
-		return &NetworkInfo{
+		return &models.NetworkInfo{
 			BytesRecv: rx2,
 			BytesSent: tx2,
 			MBpsRecv:  mbpsRecv,
 			MBpsSent:  mbpsSent,
 		}, nil
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		// Get initial network stats
 		cmd := `powershell.exe -Command "Get-NetAdapterStatistics | Measure-Object -Property ReceivedBytes, SentBytes -Sum | Select-Object -ExpandProperty Sum"`
 		output1, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
@@ -404,7 +404,7 @@ func (c *Commander) GetNetworkUsage(host string, port int, user string, keyPath 
 		mbpsRecv := float64(rx2-rx1) / 1024 / 1024
 		mbpsSent := float64(tx2-tx1) / 1024 / 1024
 
-		return &NetworkInfo{
+		return &models.NetworkInfo{
 			BytesRecv: rx2,
 			BytesSent: tx2,
 			MBpsRecv:  mbpsRecv,
@@ -428,7 +428,7 @@ func (c *Commander) GetNetworkInterfaces(host string, port int, user string, key
 	var err error
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "sudo ip -j addr show"
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -442,7 +442,7 @@ func (c *Commander) GetNetworkInterfaces(host string, port int, user string, key
 		}
 		return c.parseNetworkInterfacesJSON(output)
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		// Get network adapter configuration with IP and MAC addresses
 		cmd = `powershell.exe -Command "Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | ForEach-Object { $adapter = $_; Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{Name=$adapter.Name; MAC=$adapter.MacAddress; IP=$_.IPAddress; Family=$_.AddressFamily} } } | ConvertTo-Json -Compress"`
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
@@ -474,7 +474,7 @@ func (c *Commander) GetSystemID(host string, port int, user string, keyPath stri
 	var err error
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "sudo cat /etc/machine-id"
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -482,7 +482,7 @@ func (c *Commander) GetSystemID(host string, port int, user string, keyPath stri
 		}
 		return strings.TrimSpace(output), nil
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		cmd = `powershell.exe -Command "(Get-CimInstance Win32_ComputerSystemProduct).UUID"`
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -507,7 +507,7 @@ func (c *Commander) GetOSVersion(host string, port int, user string, keyPath str
 	var err error
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "cat /etc/os-release | grep -E '^(NAME|VERSION)='"
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -526,7 +526,7 @@ func (c *Commander) GetOSVersion(host string, port int, user string, keyPath str
 		}
 		return fmt.Sprintf("%s %s", info["NAME"], info["VERSION"]), nil
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		cmd = `powershell.exe -Command "(Get-CimInstance Win32_OperatingSystem).Caption + ' ' + (Get-CimInstance Win32_OperatingSystem).Version"`
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -551,7 +551,7 @@ func (c *Commander) GetDiskUsage(host string, port int, user string, keyPath str
 	var err error
 
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "sudo df -B1 / | tail -1"
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -573,7 +573,7 @@ func (c *Commander) GetDiskUsage(host string, port int, user string, keyPath str
 		free, _ := strconv.ParseUint(parts[3], 10, 64)
 		usedPercent := float64(used) / float64(total) * 100
 
-		return &DiskInfo{
+		return &models.DiskInfo{
 			Total:       total,
 			Used:        used,
 			Free:        free,
@@ -581,7 +581,7 @@ func (c *Commander) GetDiskUsage(host string, port int, user string, keyPath str
 			MountPoint:  "/",
 		}, nil
 
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		cmd = `powershell.exe -Command "Get-PSDrive C | Select-Object @{Name='Used';Expression={$_.Used}}, @{Name='Free';Expression={$_.Free}}, @{Name='Total';Expression={$_.Used + $_.Free}} | ConvertTo-Json"`
 		output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
@@ -612,7 +612,7 @@ func (c *Commander) GetDiskUsage(host string, port int, user string, keyPath str
 
 		usedPercent := float64(winDisk.Used) / float64(winDisk.Total) * 100
 
-		return &DiskInfo{
+		return &models.DiskInfo{
 			Total:       winDisk.Total,
 			Used:        winDisk.Used,
 			Free:        winDisk.Free,
@@ -632,35 +632,50 @@ func (c *Commander) GetDiskUsage(host string, port int, user string, keyPath str
 func (c *Commander) CheckWakeOnLAN(host string, port int, user string, keyPath string, systemType models.SystemType) (*models.WOLInfo, error) {
 	c.logger.Debug("Checking Wake-on-LAN support")
 
-	if err := c.validateSystemType(systemType, SystemTypeLinux, SystemTypeProxmox); err != nil {
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
 		return nil, err
 	}
 
-	cmd := "sudo ethtool -s 2>/dev/null | grep -E '^[a-z0-9]+:' | cut -d: -f1"
+	// Get network interfaces using ip command
+	cmd := "ip link show | grep -E '^[0-9]+:' | grep -v 'lo:' | cut -d: -f2 | cut -d' ' -f2"
 	output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 	if err != nil {
-		// ethtool might not be installed
-		c.logger.Warn("ethtool not available or failed")
-		return &WOLInfo{Supported: false}, nil
+		c.logger.Warn("Failed to get network interfaces")
+		return &models.WOLInfo{Supported: false}, nil
 	}
 
-	interfaces := strings.Fields(output)
-	wolInfo := &WOLInfo{
+	interfaces := strings.Fields(strings.TrimSpace(output))
+	wolInfo := &models.WOLInfo{
 		Interfaces: []string{},
 	}
 
+	// Check each interface for WoL support using ethtool
 	for _, iface := range interfaces {
-		cmd := fmt.Sprintf("sudo ethtool %s 2>/dev/null | grep 'Wake-on:' | grep -q 'g'", iface)
-		_, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
-		if err == nil {
+		// Skip virtual interfaces like docker, veth, etc.
+		if strings.HasPrefix(iface, "docker") || strings.HasPrefix(iface, "veth") || 
+		   strings.HasPrefix(iface, "br-") || strings.HasPrefix(iface, "virbr") {
+			continue
+		}
+		
+		// Check if ethtool can query this interface and if it supports WoL
+		cmd := fmt.Sprintf("sudo ethtool %s 2>/dev/null | grep 'Supports Wake-on:'", iface)
+		output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
+		if err != nil {
+			continue // Interface doesn't support ethtool or WoL
+		}
+		
+		// Check if the interface supports magic packet wake-on-lan
+		if strings.Contains(output, "g") {
 			wolInfo.Supported = true
 			wolInfo.Interfaces = append(wolInfo.Interfaces, iface)
+			c.logger.WithField("interface", iface).Debug("Found WoL-capable interface")
 			
-			// Check if WOL is armed
-			cmd = fmt.Sprintf("sudo ethtool %s 2>/dev/null | grep 'Wake-on:' | grep -q 'g$'", iface)
-			_, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
-			if err == nil {
+			// Check if WOL is currently armed
+			cmd = fmt.Sprintf("sudo ethtool %s 2>/dev/null | grep 'Wake-on:'", iface)
+			output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
+			if err == nil && strings.Contains(output, "Wake-on: g") {
 				wolInfo.Armed = true
+				c.logger.WithField("interface", iface).Debug("WoL is armed on interface")
 			}
 		}
 	}
@@ -672,7 +687,7 @@ func (c *Commander) CheckWakeOnLAN(host string, port int, user string, keyPath s
 func (c *Commander) ArmWakeOnLAN(host string, port int, user string, keyPath string, systemType models.SystemType) error {
 	c.logger.Debug("Arming Wake-on-LAN")
 
-	if err := c.validateSystemType(systemType, SystemTypeLinux, SystemTypeProxmox); err != nil {
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
 		return err
 	}
 
@@ -688,14 +703,38 @@ func (c *Commander) ArmWakeOnLAN(host string, port int, user string, keyPath str
 		}
 	}
 
+	armedCount := 0
+	failedInterfaces := []string{}
+
 	for _, iface := range wolInfo.Interfaces {
 		cmd := fmt.Sprintf("sudo ethtool -s %s wol g", iface)
-		output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
+		_, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 		if err != nil {
-			c.logger.WithField("interface", iface).Warn("Failed to arm Wake-on-LAN")
+			c.logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"error":     err.Error(),
+			}).Warn("Failed to arm Wake-on-LAN")
+			failedInterfaces = append(failedInterfaces, iface)
 			continue
 		}
 		c.logger.WithField("interface", iface).Info("Wake-on-LAN armed")
+		armedCount++
+	}
+
+	if armedCount == 0 {
+		return &CommandError{
+			Type:    "ArmError",
+			Message: fmt.Sprintf("Failed to arm Wake-on-LAN on any interfaces. Failed interfaces: %s", strings.Join(failedInterfaces, ", ")),
+		}
+	}
+
+	if len(failedInterfaces) > 0 {
+		c.logger.WithFields(logrus.Fields{
+			"armed":  armedCount,
+			"failed": len(failedInterfaces),
+		}).Warn("Wake-on-LAN armed partially")
+	} else {
+		c.logger.WithField("count", armedCount).Info("Wake-on-LAN armed on all interfaces")
 	}
 
 	return nil
@@ -749,7 +788,7 @@ func (c *Commander) CreateProxmoxAPIKey(host string, port int, user string, keyP
 func (c *Commander) CheckSuspendSupport(host string, port int, user string, keyPath string, systemType models.SystemType) (bool, error) {
 	c.logger.Debug("Checking suspend support")
 
-	if err := c.validateSystemType(systemType, SystemTypeLinux, SystemTypeProxmox); err != nil {
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
 		return false, err
 	}
 
@@ -766,7 +805,7 @@ func (c *Commander) CheckSuspendSupport(host string, port int, user string, keyP
 func (c *Commander) Suspend(host string, port int, user string, keyPath string, systemType models.SystemType) error {
 	c.logger.Info("Suspending system")
 
-	if err := c.validateSystemType(systemType, SystemTypeLinux, SystemTypeProxmox); err != nil {
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
 		return err
 	}
 
@@ -787,10 +826,10 @@ func (c *Commander) Suspend(host string, port int, user string, keyPath string, 
 }
 
 // CheckHibernateSupport checks if hibernate is supported
-func (c *Commander) CheckHibernateSupport(host string, port int, user string, keyPath string, systemType SystemType) (bool, error) {
+func (c *Commander) CheckHibernateSupport(host string, port int, user string, keyPath string, systemType models.SystemType) (bool, error) {
 	c.logger.Debug("Checking hibernate support")
 
-	if err := c.validateSystemType(systemType, SystemTypeLinux, SystemTypeProxmox); err != nil {
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
 		return false, err
 	}
 
@@ -804,10 +843,10 @@ func (c *Commander) CheckHibernateSupport(host string, port int, user string, ke
 }
 
 // Hibernate hibernates the system
-func (c *Commander) Hibernate(host string, port int, user string, keyPath string, systemType SystemType) error {
+func (c *Commander) Hibernate(host string, port int, user string, keyPath string, systemType models.SystemType) error {
 	c.logger.Info("Hibernating system")
 
-	if err := c.validateSystemType(systemType, SystemTypeLinux, SystemTypeProxmox); err != nil {
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
 		return err
 	}
 
@@ -828,14 +867,14 @@ func (c *Commander) Hibernate(host string, port int, user string, keyPath string
 }
 
 // Shutdown shuts down the system
-func (c *Commander) Shutdown(host string, port int, user string, keyPath string, systemType SystemType) error {
+func (c *Commander) Shutdown(host string, port int, user string, keyPath string, systemType models.SystemType) error {
 	c.logger.Info("Shutting down system")
 
 	var cmd string
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "sudo shutdown -h now"
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		cmd = "shutdown /s /t 0"
 	default:
 		return &CommandError{
@@ -848,14 +887,14 @@ func (c *Commander) Shutdown(host string, port int, user string, keyPath string,
 }
 
 // Restart restarts the system
-func (c *Commander) Restart(host string, port int, user string, keyPath string, systemType SystemType) error {
+func (c *Commander) Restart(host string, port int, user string, keyPath string, systemType models.SystemType) error {
 	c.logger.Info("Restarting system")
 
 	var cmd string
 	switch systemType {
-	case SystemTypeLinux, SystemTypeProxmox:
+	case models.SystemTypeLinux, models.SystemTypeProxmox:
 		cmd = "sudo shutdown -r now"
-	case SystemTypeWindows:
+	case models.SystemTypeWindows:
 		cmd = "shutdown /r /t 0"
 	default:
 		return &CommandError{
@@ -956,9 +995,46 @@ func (c *Commander) GetSystemInfo(host string, port int, user string, keyPath st
 	return info, nil
 }
 
+// VerifyWakeOnLAN provides detailed information about WoL configuration
+func (c *Commander) VerifyWakeOnLAN(host string, port int, user string, keyPath string, systemType models.SystemType) (*models.WOLInfo, error) {
+	c.logger.Info("Verifying Wake-on-LAN configuration")
+
+	if err := c.validateSystemType(systemType, models.SystemTypeLinux, models.SystemTypeProxmox); err != nil {
+		return nil, err
+	}
+
+	// Get comprehensive WoL info
+	wolInfo, err := c.CheckWakeOnLAN(host, port, user, keyPath, systemType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Log detailed information for debugging
+	c.logger.WithFields(logrus.Fields{
+		"supported":       wolInfo.Supported,
+		"armed":           wolInfo.Armed,
+		"interfaces":      wolInfo.Interfaces,
+		"interface_count": len(wolInfo.Interfaces),
+	}).Info("Wake-on-LAN status summary")
+
+	// Check detailed status for each interface
+	for _, iface := range wolInfo.Interfaces {
+		cmd := fmt.Sprintf("sudo ethtool %s 2>/dev/null | grep -A5 -B5 'Wake-on'", iface)
+		output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
+		if err == nil {
+			c.logger.WithFields(logrus.Fields{
+				"interface": iface,
+				"details":   strings.TrimSpace(output),
+			}).Debug("Interface WoL details")
+		}
+	}
+
+	return wolInfo, nil
+}
+
 // Helper functions
 
-func (c *Commander) validateSystemType(actual SystemType, expected ...SystemType) error {
+func (c *Commander) validateSystemType(actual models.SystemType, expected ...models.SystemType) error {
 	for _, exp := range expected {
 		if actual == exp {
 			return nil
@@ -1035,8 +1111,8 @@ func (c *Commander) handleSSHError(err error, cmd string, output string) error {
 	}
 }
 
-func (c *Commander) parseNetworkInterfacesJSON(jsonOutput string) ([]NetworkInterface, error) {
-	var interfaces []NetworkInterface
+func (c *Commander) parseNetworkInterfacesJSON(jsonOutput string) ([]models.NetworkInterface, error) {
+	var interfaces []models.NetworkInterface
 	var jsonData []map[string]interface{}
 	
 	if err := json.Unmarshal([]byte(jsonOutput), &jsonData); err != nil {
@@ -1066,7 +1142,7 @@ func (c *Commander) parseNetworkInterfacesJSON(jsonOutput string) ([]NetworkInte
 				if addrMap, ok := addr.(map[string]interface{}); ok {
 					if ip, ok := addrMap["local"].(string); ok {
 						family, _ := addrMap["family"].(string)
-						interfaces = append(interfaces, NetworkInterface{
+						interfaces = append(interfaces, models.NetworkInterface{
 							Name:       ifname,
 							IPAddress:  ip,
 							MACAddress: macAddr,
@@ -1081,8 +1157,8 @@ func (c *Commander) parseNetworkInterfacesJSON(jsonOutput string) ([]NetworkInte
 	return interfaces, nil
 }
 
-func (c *Commander) parseNetworkInterfacesText(output string) []NetworkInterface {
-	var interfaces []NetworkInterface
+func (c *Commander) parseNetworkInterfacesText(output string) []models.NetworkInterface {
+	var interfaces []models.NetworkInterface
 	lines := strings.Split(output, "\n")
 	
 	var currentMAC string
@@ -1113,7 +1189,7 @@ func (c *Commander) parseNetworkInterfacesText(output string) []NetworkInterface
 						}
 					}
 					
-					interfaces = append(interfaces, NetworkInterface{
+					interfaces = append(interfaces, models.NetworkInterface{
 						Name:       currentIface,
 						IPAddress:  ipParts[0],
 						MACAddress: currentMAC,
@@ -1129,7 +1205,7 @@ func (c *Commander) parseNetworkInterfacesText(output string) []NetworkInterface
 			if len(parts) >= 2 {
 				ipParts := strings.Split(parts[1], "/")
 				if len(ipParts) > 0 && !strings.HasPrefix(ipParts[0], "fe80") { // Skip link-local
-					interfaces = append(interfaces, NetworkInterface{
+					interfaces = append(interfaces, models.NetworkInterface{
 						Name:       currentIface,
 						IPAddress:  ipParts[0],
 						MACAddress: currentMAC,
@@ -1143,8 +1219,8 @@ func (c *Commander) parseNetworkInterfacesText(output string) []NetworkInterface
 	return interfaces
 }
 
-func (c *Commander) parseWindowsNetworkInterfaces(jsonOutput string) ([]NetworkInterface, error) {
-	var interfaces []NetworkInterface
+func (c *Commander) parseWindowsNetworkInterfaces(jsonOutput string) ([]models.NetworkInterface, error) {
+	var interfaces []models.NetworkInterface
 	
 	// Handle both single object and array
 	jsonOutput = strings.TrimSpace(jsonOutput)
@@ -1191,7 +1267,7 @@ func (c *Commander) parseWindowsNetworkInterfaces(jsonOutput string) ([]NetworkI
 			mac = strings.ReplaceAll(mac, "-", ":")
 		}
 		
-		interfaces = append(interfaces, NetworkInterface{
+		interfaces = append(interfaces, models.NetworkInterface{
 			Name:       iface.Name,
 			IPAddress:  iface.IP,
 			MACAddress: mac,
@@ -1202,8 +1278,8 @@ func (c *Commander) parseWindowsNetworkInterfaces(jsonOutput string) ([]NetworkI
 	return interfaces, nil
 }
 
-func (c *Commander) parseWindowsNetworkInterfacesWMI(jsonOutput string) ([]NetworkInterface, error) {
-	var interfaces []NetworkInterface
+func (c *Commander) parseWindowsNetworkInterfacesWMI(jsonOutput string) ([]models.NetworkInterface, error) {
+	var interfaces []models.NetworkInterface
 	
 	// Handle both single object and array
 	jsonOutput = strings.TrimSpace(jsonOutput)
@@ -1241,7 +1317,7 @@ func (c *Commander) parseWindowsNetworkInterfacesWMI(jsonOutput string) ([]Netwo
 			
 			isIPv6 := strings.Contains(ip, ":")
 			
-			interfaces = append(interfaces, NetworkInterface{
+			interfaces = append(interfaces, models.NetworkInterface{
 				Name:       iface.Description,
 				IPAddress:  ip,
 				MACAddress: mac,

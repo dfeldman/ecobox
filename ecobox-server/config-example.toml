@@ -1,0 +1,63 @@
+# EcoBox Server Configuration Example
+# This example shows all configuration options including the new metrics settings
+
+[dashboard]
+# Web interface port
+port = 8080
+
+# Status check interval in seconds
+update_interval = 30
+
+# Wake-on-LAN settings
+wol_retry_interval = 10    # Seconds between WoL retries
+wol_max_retries = 5        # Maximum WoL attempts
+
+# Logging
+log_level = "info"  # "debug", "info", "warn", "error"
+
+# System monitoring intervals
+system_check_interval = 300   # System info gathering interval in seconds (5 minutes)
+init_check_interval = 3600    # Initialization check interval in seconds (1 hour)
+force_reinitialization = false # Force re-initialization on startup
+
+# Metrics settings (NEW)
+metrics_data_dir = "./metrics"      # Directory to store metrics data
+metrics_flush_interval = 300       # How often to flush metrics to disk (5 minutes)
+
+# Authentication settings
+iap_auth = "none"                   # "tailscale", "authentik", "cloudflare", "none"
+session_key_file = "sessionkey.conf"
+password_file = "passwd.conf"
+
+# Server definitions
+[[servers]]
+id = "server1"
+name = "Main Server"
+hostname = "192.168.1.100"
+mac_address = "aa:bb:cc:dd:ee:ff"
+ssh_user = "root"
+ssh_port = 22
+ssh_key_path = "/path/to/ssh/key"
+
+    [[servers.services]]
+    name = "SSH"
+    port = 22
+    type = "ssh"
+    
+    [[servers.services]]
+    name = "Web"
+    port = 80
+    type = "http"
+
+[[servers]]
+id = "server2"
+name = "Backup Server"
+hostname = "192.168.1.101" 
+mac_address = "ff:ee:dd:cc:bb:aa"
+ssh_user = "admin"
+ssh_port = 22
+
+    [[servers.services]]
+    name = "SSH"
+    port = 22
+    type = "ssh"

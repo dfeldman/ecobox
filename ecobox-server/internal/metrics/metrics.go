@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,6 +125,19 @@ func (m *Manager) GetSummary(serverName, metricName string, startTime, endTime t
 	}
 
 	return store.GetSummary(metricName, startTime, endTime, timePeriodSec)
+}
+
+// GetLatestValues gets the most recent value for each metric of a server
+func (m *Manager) GetLatestValues(serverName string) (map[string]float64, error) {
+	m.mu.RLock()
+	store, exists := m.servers[serverName]
+	m.mu.RUnlock()
+
+	if !exists {
+		return map[string]float64{}, nil // No data for this server
+	}
+
+	return store.GetLatestValues()
 }
 
 // GetServerNames returns list of all server names with data
@@ -347,6 +361,114 @@ func (s *Store) writeMetricsToFile(dateStr string, metrics []Metric) error {
 	}
 
 	return nil
+}
+
+// GetLatestValues gets the most recent value for each metric type
+func (s *Store) GetLatestValues() (map[string]float64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Define which metrics to include in the UI
+	displayMetrics := map[string]bool{
+		"cpu":     true,
+		"memory":  true,
+		"network": true,
+		"wattage": true,
+	}
+
+	result := make(map[string]float64)
+	metricLatest := make(map[string]Metric)
+	
+	// Check buffer first for the most recent values
+	for _, metric := range s.buffer {
+		if displayMetrics[metric.Name] {
+			if existing, exists := metricLatest[metric.Name]; !exists || metric.Timestamp.After(existing.Timestamp) {
+				metricLatest[metric.Name] = metric
+			}
+		}
+	}
+	
+	// Always check files for the latest values, even if we have buffer data
+	// This ensures we get the most recent value for each metric type
+	now := time.Now()
+	files := s.getFilesInRange(now.AddDate(0, 0, -7), now) // Check last week for comprehensive data
+	
+	// Process files from most recent to oldest
+	for i := len(files) - 1; i >= 0; i-- {
+		filepath := files[i]
+		
+		var fileHandle io.Reader
+		file, err := os.Open(filepath)
+		if err != nil {
+			continue // Skip files we can't open
+		}
+		
+		if strings.HasSuffix(filepath, ".gz") {
+			gzReader, err := gzip.NewReader(file)
+			if err != nil {
+				file.Close()
+				continue
+			}
+			fileHandle = gzReader
+			defer gzReader.Close()
+		} else {
+			fileHandle = file
+		}
+		
+		csvReader := csv.NewReader(fileHandle)
+		records, err := csvReader.ReadAll()
+		file.Close()
+		
+		if err != nil {
+			continue // Skip files with read errors
+		}
+		
+		// Process records from end to beginning (most recent first)
+		for j := len(records) - 1; j >= 0; j-- {
+			record := records[j]
+			if len(record) != 3 {
+				continue
+			}
+			
+			timestamp, err := strconv.ParseInt(record[0], 10, 64)
+			if err != nil {
+				continue
+			}
+			
+			name := record[1]
+			if !displayMetrics[name] {
+				continue // Skip metrics we don't want to display
+			}
+			
+			value, err := strconv.ParseFloat(record[2], 64)
+			if err != nil {
+				continue
+			}
+			
+			metric := Metric{
+				Timestamp: time.Unix(timestamp, 0),
+				Name:      name,
+				Value:     value,
+			}
+			
+			// Only update if we don't have this metric yet or if this is more recent
+			if existing, exists := metricLatest[name]; !exists || metric.Timestamp.After(existing.Timestamp) {
+				metricLatest[name] = metric
+			}
+		}
+		
+		// If we have all the metrics we need, we can stop processing older files
+		if len(metricLatest) >= len(displayMetrics) {
+			break
+		}
+	}
+	
+	// Convert to result map
+	for name, metric := range metricLatest {
+		result[name] = metric.Value
+	}
+	
+	return result, nil
 }
 
 // GetSummary calculates averages for metrics over specified time periods

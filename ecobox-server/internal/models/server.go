@@ -12,6 +12,11 @@ type Server struct {
 	ParentServerID string       `json:"parent_server_id"`
 	Initialized    bool         `json:"initialized"`
 
+	// Initialization tracking
+	InitRetryCount      int       `json:"init_retry_count"`
+	LastInitAttempt     time.Time `json:"last_init_attempt"`
+	LastSuccessfulInit  time.Time `json:"last_successful_init"`
+
 	// System information collected from the server
 	SystemInfo *SystemInfo `json:"system_info,omitempty"`
 

@@ -9,6 +9,7 @@ const (
 	PowerStateOff       PowerState = "off"
 	PowerStateSuspended PowerState = "suspended"
 	PowerStateUnknown   PowerState = "unknown"
+	PowerStateInitFailed PowerState = "init_failed"
 )
 
 type ServiceType string

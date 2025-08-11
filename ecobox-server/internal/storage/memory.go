@@ -182,6 +182,9 @@ func (ms *MemoryStorage) updateServerTimesLocked(server *models.Server) error {
 		server.TotalSuspendedTime += duration
 	case models.PowerStateOff:
 		server.TotalOffTime += duration
+	// INIT_FAILED is treated as off time since the server is effectively unavailable
+	case models.PowerStateInitFailed:
+		server.TotalOffTime += duration
 	}
 
 	return nil

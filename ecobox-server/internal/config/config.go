@@ -12,6 +12,15 @@ type DashboardConfig struct {
 	WoLMaxRetries    int    `toml:"wol_max_retries"`   // Maximum WoL retries (default: 5)
 	LogLevel         string `toml:"log_level"`         // "debug", "info", "warn", "error"
 
+	// System monitoring settings
+	SystemCheckInterval    int  `toml:"system_check_interval"`    // System info check interval in seconds (default: 300)
+	InitCheckInterval      int  `toml:"init_check_interval"`      // Initialization check interval in seconds (default: 3600)
+	ForceReinitialization  bool `toml:"force_reinitialization"`  // Force re-initialization on next startup (default: false)
+
+	// Metrics settings
+	MetricsDataDir         string `toml:"metrics_data_dir"`        // Directory to store metrics data (default: "./metrics")
+	MetricsFlushInterval   int    `toml:"metrics_flush_interval"`  // Metrics flush interval in seconds (default: 300)
+
 	// Authentication settings
 	IAPAuth          string `toml:"iap_auth"`          // Identity-aware proxy: "tailscale", "authentik", "cloudflare", "none"
 	SessionKeyFile   string `toml:"session_key_file"`  // Path to session key file (default: "sessionkey.conf")
@@ -63,6 +72,22 @@ func (c *Config) SetDefaults() {
 	}
 	if c.Dashboard.PasswordFile == "" {
 		c.Dashboard.PasswordFile = "passwd.conf"
+	}
+
+	// Set system monitoring defaults
+	if c.Dashboard.SystemCheckInterval == 0 {
+		c.Dashboard.SystemCheckInterval = 300 // 5 minutes
+	}
+	if c.Dashboard.InitCheckInterval == 0 {
+		c.Dashboard.InitCheckInterval = 3600 // 1 hour
+	}
+
+	// Set metrics defaults
+	if c.Dashboard.MetricsDataDir == "" {
+		c.Dashboard.MetricsDataDir = "./metrics"
+	}
+	if c.Dashboard.MetricsFlushInterval == 0 {
+		c.Dashboard.MetricsFlushInterval = 300 // 5 minutes
 	}
 
 	for i := range c.Servers {
