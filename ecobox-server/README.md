@@ -15,6 +15,7 @@ A Go-based local network server management and monitoring system that controls s
 - **Action Logging**: Track all power management actions
 - **System Information Collection**: Gather comprehensive system metrics and VM information
 - **Power Management Capabilities**: Support for suspend, hibernate, WoL, and power monitoring
+- **Proxmox Integration**: Comprehensive Proxmox VE support with automatic VM discovery and API-based monitoring
 
 ## Installation
 
@@ -200,6 +201,88 @@ This will:
 - Install the application to `/opt/ecobox-server`
 - Set up a systemd service
 - Start the service automatically
+
+## Proxmox Integration
+
+EcoBox Server provides comprehensive Proxmox Virtual Environment (PVE) integration:
+
+### Features
+- **Automatic VM Discovery**: Discovers and monitors Proxmox VMs automatically
+- **API-Based Monitoring**: Uses Proxmox API for faster, more reliable VM monitoring
+- **Hybrid Approach**: SSH for hosts, API for VMs
+- **Auto-Generated API Keys**: Creates and manages Proxmox API keys automatically
+
+### Setup
+1. Configure your Proxmox host as a regular server with SSH credentials
+2. The system will automatically detect it as a Proxmox host
+3. API keys will be created automatically via SSH
+4. VMs will be discovered and added as monitored servers
+
+See [PROXMOX_INTEGRATION.md](PROXMOX_INTEGRATION.md) for detailed documentation.
+
+## Frontend Options
+
+EcoBox now includes two frontend options:
+
+### 1. Vue.js Frontend (Recommended)
+
+A modern, responsive Vue.js 3 application with:
+- **Real-time WebSocket integration** for live server status updates
+- **Modern UI** with dark mode support and responsive design
+- **Authentication system** with JWT cookies and role-based access
+- **User management** for administrators
+- **Interactive metrics charts** using the existing metrics.js library
+- **Mobile-friendly interface**
+
+#### Quick Start with Vue.js Frontend
+
+```bash
+# Build everything (backend + frontend)
+make build
+
+# Or use the build script
+./build.sh build
+
+# Run the application
+make run
+```
+
+#### Development with Vue.js Frontend
+
+```bash
+# Terminal 1: Start backend with hot reload
+make dev
+
+# Terminal 2: Start frontend dev server
+make dev-frontend
+```
+
+The Vue.js frontend development server runs on `http://localhost:5173` and proxies API calls to the Go backend.
+
+### 2. Legacy Static Frontend
+
+The original static HTML/JavaScript frontend is preserved in `web/static/` and remains fully functional.
+
+## Build System
+
+### Make Commands
+
+- `make build` - Build complete application (backend + Vue.js frontend)
+- `make build-frontend` - Build only Vue.js frontend
+- `make install-frontend` - Install frontend dependencies
+- `make dev` - Start backend with hot reload
+- `make dev-frontend` - Start frontend development server
+- `make dev-full` - Start frontend dev server (run `make dev` separately)
+- `make run` - Run the built application
+- `make clean` - Clean all build artifacts
+
+### Build Script Commands
+
+- `./build.sh build` - Build complete application
+- `./build.sh build-frontend` - Build only Vue.js frontend
+- `./build.sh install-frontend` - Install frontend dependencies
+- `./build.sh dev` - Start backend development server
+- `./build.sh dev-frontend` - Start frontend development server
 
 ## Contributing
 
