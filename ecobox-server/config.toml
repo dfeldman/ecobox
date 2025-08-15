@@ -4,11 +4,13 @@ update_interval = 30
 wol_retry_interval = 10
 wol_max_retries = 5
 log_level = "debug"
+log_file = "dashboard.log"
 
 # System monitoring intervals
 system_check_interval = 10   # System info gathering interval in seconds (5 minutes)
 init_check_interval = 3600    # Initialization check interval in seconds (1 hour)
-force_reinitialization = false # Force re-initialization on startup
+vm_discovery_interval = 30   # VM discovery interval in seconds (30 seconds for testing)
+force_reinitialization = true # Force re-initialization on startup
 
 # Metrics settings
 metrics_data_dir = "./metrics"      # Directory to store metrics data
@@ -21,7 +23,7 @@ session_key_file = "sessionkey.conf"
 password_file = "passwd.conf"
 
 [[servers]]
-id = "homelab-host"
+id = "desk"
 name = "Homelab Host"
 hostname = "192.168.68.77"
 mac_address = "3C:7C:3F:23:C4:B1"
@@ -44,3 +46,26 @@ ssh_key_path = "/Users/dfeldman/.ssh/root_access_key"
   port = 443
   type = "https"
 
+[[servers]]
+id = "lab"
+name = "lab"
+hostname = "192.168.68.100"
+mac_address = "04:7C:16:5B:D6:7D"
+ssh_user = "root"
+ssh_port = 22
+ssh_key_path = "/Users/dfeldman/.ssh/root_access_key"
+
+  [[servers.services]]
+  name = "SSH"
+  port = 22
+  type = "ssh"
+
+  [[servers.services]]
+  name = "Web Interface"
+  port = 9000
+  type = "http"
+
+  [[servers.services]]
+  name = "HTTPS"
+  port = 443
+  type = "https"

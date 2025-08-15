@@ -862,6 +862,13 @@ class MetricsDashboard {
     }
 }
 
+// Expose classes to global scope for Vue integration
+console.log('Assigning MetricsDashboard to window:', typeof MetricsDashboard);
+window.MetricsDashboard = MetricsDashboard;
+console.log('Assigning MockMetricsAPI to window:', typeof MockMetricsAPI);
+window.MockMetricsAPI = MockMetricsAPI;
+console.log('Window assignments complete. MetricsDashboard type:', typeof window.MetricsDashboard);
+
 // Initialize dashboard
 // document.addEventListener('DOMContentLoaded', () => {
 //     // Example initialization with options:

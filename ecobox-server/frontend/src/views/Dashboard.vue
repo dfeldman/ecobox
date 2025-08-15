@@ -84,6 +84,8 @@
             :server="server"
             @wake="handleWake"
             @suspend="handleSuspend"
+            @shutdown="handleShutdown"
+            @stop="handleStop"
           />
         </div>
       </div>
@@ -226,6 +228,28 @@ export default {
       }
     }
     
+    const handleShutdown = async (serverId) => {
+      const result = await serversStore.shutdownServer(serverId)
+      if (result.success) {
+        // Success feedback could be added here
+        console.log(result.message)
+      } else {
+        // Error feedback could be added here
+        console.error(result.message)
+      }
+    }
+    
+    const handleStop = async (serverId) => {
+      const result = await serversStore.stopServer(serverId)
+      if (result.success) {
+        // Success feedback could be added here
+        console.log(result.message)
+      } else {
+        // Error feedback could be added here
+        console.error(result.message)
+      }
+    }
+    
     onMounted(async () => {
       await fetchServers()
       serversStore.initializeWebSocket()
@@ -249,7 +273,9 @@ export default {
       fetchServers,
       handleLogout,
       handleWake,
-      handleSuspend
+      handleSuspend,
+      handleShutdown,
+      handleStop
     }
   }
 }

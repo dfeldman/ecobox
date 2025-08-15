@@ -158,6 +158,11 @@ export default {
     uptimeSeconds: {
       type: Number,
       default: 0
+    },
+    // Optional: servers list to find matching VM server
+    servers: {
+      type: Array,
+      default: () => []
     }
   },
   emits: ['wake', 'suspend', 'shutdown', 'stop'],
@@ -230,10 +235,20 @@ export default {
     })
     
     const navigateToDetail = () => {
-      // Try to find VM as a managed server by name or VM ID
-      // This would require the VM to also be configured as a server
-      console.log(`Navigate to VM details: ${props.vm.name} (${props.vm.vm_id})`)
-      // For now, this is a placeholder - would need VM-specific routing
+      // Try to find VM as a managed server by name
+      const matchingServer = props.servers.find(server => 
+        server.name === props.vm.name || 
+        server.hostname === props.vm.name ||
+        (server.system_info?.vm_id && server.system_info.vm_id === props.vm.vm_id)
+      )
+      
+      if (matchingServer) {
+        console.log(`Navigating to VM server details: ${matchingServer.name} (${matchingServer.id})`)
+        router.push(`/server/${matchingServer.id}`)
+      } else {
+        console.log(`VM ${props.vm.name} not found as managed server`)
+        // Could show a notification or modal here
+      }
     }
     
     return {

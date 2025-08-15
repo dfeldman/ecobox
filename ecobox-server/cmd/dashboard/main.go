@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,7 +34,7 @@ func main() {
 	}
 
 	// Setup logging
-	logger := setupLogging(cfg.Dashboard.LogLevel)
+	logger := setupLogging(cfg.Dashboard.LogLevel, cfg.Dashboard.LogFile)
 	logger.Info("Starting Network Dashboard")
 	logger.Infof("Configuration loaded from: %s", *configPath)
 
@@ -118,8 +119,8 @@ func main() {
 	logger.Info("Network Dashboard stopped")
 }
 
-// setupLogging configures the logger based on the specified log level
-func setupLogging(logLevel string) *logrus.Logger {
+// setupLogging configures the logger based on the specified log level and optional log file
+func setupLogging(logLevel string, logFile string) *logrus.Logger {
 	logger := logrus.New()
 
 	// Set log format
@@ -127,6 +128,20 @@ func setupLogging(logLevel string) *logrus.Logger {
 		TimestampFormat: time.RFC3339,
 		FullTimestamp:   true,
 	})
+
+	// Configure output destinations
+	if logFile != "" {
+		// Create log file
+		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			logger.Fatalf("Failed to open log file %s: %v", logFile, err)
+		}
+		
+		// Write to both file and stdout
+		multiWriter := io.MultiWriter(os.Stdout, file)
+		logger.SetOutput(multiWriter)
+		logger.Infof("Logging to file: %s", logFile)
+	}
 
 	// Set log level
 	switch logLevel {

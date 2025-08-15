@@ -1,6 +1,6 @@
 # Network Dashboard Makefile
 
-.PHONY: deps build test run dev clean help
+.PHONY: deps build test run dev clean help build-frontend dev-frontend install-frontend
 
 # Default target
 all: build
@@ -11,14 +11,30 @@ deps:
 	go mod tidy
 	go mod download
 
+# Install frontend dependencies
+install-frontend:
+	@echo "Installing frontend dependencies..."
+	cd frontend && npm install
+
+# Build frontend
+build-frontend: install-frontend
+	@echo "Building Vue.js frontend..."
+	cd frontend && npm run build
+	@echo "Frontend built to web/static-vue/"
+
+# Development frontend server
+dev-frontend: install-frontend
+	@echo "Starting Vue.js development server..."
+	cd frontend && npm run dev
+
 # Build the application
-build: deps
+build: deps build-frontend
 	@echo "Building Network Dashboard..."
 	@mkdir -p bin
 	go build -o bin/dashboard ./cmd/dashboard
 
 # Build for multiple platforms
-build-all: deps
+build-all: deps build-frontend
 	@echo "Building for multiple platforms..."
 	@mkdir -p bin
 	GOOS=linux GOARCH=amd64 go build -o bin/dashboard-linux-amd64 ./cmd/dashboard
@@ -42,10 +58,16 @@ dev:
 	@which air > /dev/null || (echo "Installing air..." && go install github.com/cosmtrek/air@latest)
 	air
 
+# Development with frontend hot reload
+dev-full: dev-frontend
+	@echo "Run 'make dev' in another terminal for backend hot reload"
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf bin/
+	rm -rf web/static-vue/
+	cd frontend && rm -rf node_modules dist
 	go clean
 
 # Format code
@@ -83,6 +105,21 @@ help:
 	@echo "Network Dashboard Makefile"
 	@echo ""
 	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Targets:"
+	@echo "  build           - Build the complete application (backend + frontend)"
+	@echo "  build-frontend  - Build only the Vue.js frontend"
+	@echo "  install-frontend- Install frontend dependencies"
+	@echo "  dev-frontend    - Start Vue.js development server"
+	@echo "  dev             - Start backend development server with hot reload"
+	@echo "  dev-full        - Start frontend development server (run 'make dev' separately)"
+	@echo "  run             - Run the built application"
+	@echo "  test            - Run tests"
+	@echo "  clean           - Clean build artifacts"
+	@echo "  fmt             - Format code"
+	@echo "  lint            - Lint code"
+	@echo "  release         - Create release archives"
+	@echo "  install         - Install to GOPATH/bin"
 	@echo ""
 	@echo "Targets:"
 	@echo "  deps       Install dependencies"

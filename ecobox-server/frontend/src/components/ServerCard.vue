@@ -106,6 +106,24 @@
           Suspend
         </button>
         <button
+          v-if="showShutdownButton"
+          @click="$emit('shutdown', server.id)"
+          class="btn btn-warning btn-sm flex-1"
+          :disabled="actionLoading"
+        >
+          <span v-if="actionLoading" class="loading w-3 h-3 mr-1"></span>
+          Shutdown
+        </button>
+        <button
+          v-if="showStopButton"
+          @click="$emit('stop', server.id)"
+          class="btn btn-error btn-sm flex-1"
+          :disabled="actionLoading"
+        >
+          <span v-if="actionLoading" class="loading w-3 h-3 mr-1"></span>
+          Stop
+        </button>
+        <button
           @click="navigateToDetail"
           class="btn btn-secondary btn-sm"
         >
@@ -134,7 +152,7 @@ export default {
       required: true
     }
   },
-  emits: ['wake', 'suspend'],
+  emits: ['wake', 'suspend', 'shutdown', 'stop'],
   setup(props) {
     const router = useRouter()
     const actionLoading = ref(false)
@@ -233,13 +251,51 @@ export default {
     
     const showWakeButton = computed(() => {
       const state = props.server.current_state
-      return state === 'off' || state === 'suspended' || state === 'unknown' || state === 'init_failed'
+      return state === 'off' || state === 'suspended' || state === 'unknown' || state === 'init_failed' || state === 'stopped'
     })
     
     const showSuspendButton = computed(() => {
       const state = props.server.current_state
-      // Show suspend for systems that are on, or in init_failed state (since we don't know the actual state)
-      return (state === 'on' || state === 'init_failed') && props.server.system_info?.suspend_support
+      // For regular servers: show if on and supports suspend
+      // For VMs (identified by having a parent_server_id): always show when running
+      const isVM = !!props.server.parent_server_id
+      
+      // Debug logging for VMs
+      if (isVM) {
+        console.log(`VM ${props.server.name}: state=${state}, parent_server_id=${props.server.parent_server_id}`)
+      }
+      
+      if (isVM) {
+        return state === 'on'
+      } else {
+        return (state === 'on' || state === 'init_failed') && props.server.system_info?.suspend_support
+      }
+    })
+    
+    const showShutdownButton = computed(() => {
+      // Only show for VMs (identified by having a parent_server_id) when running
+      const isVM = !!props.server.parent_server_id
+      const state = props.server.current_state
+      const shouldShow = isVM && state === 'on'
+      
+      if (isVM) {
+        console.log(`VM ${props.server.name}: showShutdownButton=${shouldShow} (state=${state})`)
+      }
+      
+      return shouldShow
+    })
+    
+    const showStopButton = computed(() => {
+      // Only show for VMs (identified by having a parent_server_id) when running
+      const isVM = !!props.server.parent_server_id
+      const state = props.server.current_state
+      const shouldShow = isVM && state === 'on'
+      
+      if (isVM) {
+        console.log(`VM ${props.server.name}: showStopButton=${shouldShow} (state=${state})`)
+      }
+      
+      return shouldShow
     })
     
     return {
@@ -257,7 +313,9 @@ export default {
       getVMUptime,
       navigateToDetail,
       showWakeButton,
-      showSuspendButton
+      showSuspendButton,
+      showShutdownButton,
+      showStopButton
     }
   }
 }

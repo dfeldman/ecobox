@@ -91,6 +91,9 @@ func (am *Middleware) isPublicPath(path string) bool {
 		"/login",
 		"/setup",
 		"/static/",
+		"/static-vue/",
+		"/css/",
+		"/js/",
 		"/favicon.ico",
 	}
 	

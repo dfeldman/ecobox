@@ -34,6 +34,13 @@ func NewCommander(executor SSHExecutor, logger *logrus.Logger) *Commander {
 	}
 }
 
+// SetLogger sets a custom logger for the Commander
+func (c *Commander) SetLogger(logger *logrus.Logger) {
+	if logger != nil {
+		c.logger = logger
+	}
+}
+
 // CommandError represents a detailed command error
 type CommandError struct {
 	Type    string
@@ -68,15 +75,32 @@ func (c *Commander) TestConnection(host string, port int, user string, keyPath s
 func (c *Commander) DetectSystemType(host string, port int, user string, keyPath string) (models.SystemType, error) {
 	c.logger.Debug("Detecting system type")
 
-	// Check for Proxmox
-	output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, "test -f /etc/pve/version && cat /etc/pve/version")
-	if err == nil && strings.Contains(output, "pve-manager") {
-		c.logger.Info("Detected Proxmox system")
-		return models.SystemTypeProxmox, nil
+	// Check for Proxmox using multiple methods
+	proxmoxCommands := []string{
+		"test -f /etc/pve/version && cat /etc/pve/version",
+		"which pveversion && pveversion",
+		"test -d /etc/pve && echo 'proxmox-detected'",
+		"systemctl is-active pve-cluster 2>/dev/null && echo 'pve-cluster-active'",
+	}
+
+	for _, cmd := range proxmoxCommands {
+		output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
+		c.logger.Debugf("Proxmox detection command '%s': output='%s', err=%v", cmd, strings.TrimSpace(output), err)
+		
+		if err == nil {
+			output = strings.TrimSpace(output)
+			if strings.Contains(output, "pve-manager") || 
+			   strings.Contains(output, "proxmox-detected") || 
+			   strings.Contains(output, "pve-cluster-active") ||
+			   strings.Contains(strings.ToLower(output), "proxmox") {
+				c.logger.Info("Detected Proxmox system")
+				return models.SystemTypeProxmox, nil
+			}
+		}
 	}
 
 	// Check for Linux
-	output, err = c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, "uname -s")
+	output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, "uname -s")
 	if err == nil {
 		if strings.Contains(strings.ToLower(output), "linux") {
 			c.logger.Info("Detected Linux system")
@@ -744,25 +768,45 @@ func (c *Commander) ArmWakeOnLAN(host string, port int, user string, keyPath str
 func (c *Commander) CreateProxmoxAPIKey(host string, port int, user string, keyPath string) (*models.ProxmoxAPIKey, error) {
 	c.logger.Debug("Creating Proxmox API key")
 
-	// Generate a unique token ID
-	tokenID := fmt.Sprintf("homelab-%d", time.Now().Unix())
+	// Use a consistent token ID instead of timestamp-based
+	tokenID := "ecobox-monitor"
+	
+	// First, delete any existing ecobox-monitor token to clean up from previous runs
+	deleteCmd := fmt.Sprintf("/usr/sbin/pveum user token delete %s@pam %s 2>/dev/null || true", user, tokenID)
+	_, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, deleteCmd)
+	if err != nil {
+		c.logger.WithError(err).Debug("Failed to delete existing token (this is normal if token didn't exist)")
+	} else {
+		c.logger.Debug("Cleaned up existing ecobox-monitor token")
+	}
 	
 	// Create API token
-	cmd := fmt.Sprintf("sudo pveum user token add %s@pam %s --privsep 0", user, tokenID)
+	cmd := fmt.Sprintf("/usr/sbin/pveum user token add %s@pam %s --privsep 0", user, tokenID)
 	output, err := c.executor.ExecuteCommandWithOutput(host, port, user, keyPath, cmd)
 	if err != nil {
 		return nil, c.handleSSHError(err, cmd, output)
 	}
 
+	c.logger.WithField("host", host).WithField("output", output).Debug("Raw API token creation output")
+
 	// Parse the output to extract the secret
 	lines := strings.Split(output, "\n")
 	var secret string
 	for _, line := range lines {
-		if strings.Contains(line, "value") {
-			parts := strings.SplitN(line, "│", 3)
+		c.logger.WithField("line", line).Debug("Parsing token output line")
+		// Look for the actual data line that contains the secret value
+		// The line should have the pattern: │ value        │ <actual-uuid-here> │
+		if strings.Contains(line, "│ value") && strings.Count(line, "│") >= 3 {
+			parts := strings.Split(line, "│")
+			c.logger.WithField("parts", parts).Debug("Split line parts")
+			// parts[0] = "", parts[1] = " value        ", parts[2] = " <uuid> ", parts[3] = ""
 			if len(parts) >= 3 {
 				secret = strings.TrimSpace(parts[2])
-				break
+				c.logger.WithField("secret", secret).Debug("Extracted secret")
+				// Make sure we got a UUID-like string, not just "value"
+				if len(secret) > 10 && secret != "value" {
+					break
+				}
 			}
 		}
 	}

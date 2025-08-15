@@ -72,7 +72,7 @@ class NetworkDashboard {
             <div class="server-header">
                 <div class="server-info">
                     <h3>${this.escapeHtml(server.name)}</h3>
-                    <div class="server-hostname">${this.escapeHtml(server.hostname)}</div>
+                    <div class="server-hostname">${this.getDisplayHostname(server)}</div>
                     ${server.parent_server_id ? `<div class="parent-info">Child of: ${this.getParentName(server.parent_server_id)}</div>` : ''}
                 </div>
                 <div class="power-state ${server.current_state}">${server.current_state.toUpperCase()}</div>
@@ -412,6 +412,15 @@ class NetworkDashboard {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    getDisplayHostname(server) {
+        // For VMs without hostnames, show "Unknown IP (install guest agent)"
+        if (server.is_proxmox_vm && (!server.hostname || server.hostname === server.name || server.hostname.startsWith('vm-'))) {
+            return '<span class="unknown-ip">Unknown IP (install guest agent)</span>';
+        }
+        // For regular servers or VMs with proper hostnames
+        return this.escapeHtml(server.hostname);
     }
 
     showError(message) {

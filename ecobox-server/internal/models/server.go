@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type Server struct {
 	ID             string       `json:"id"`
@@ -36,6 +39,13 @@ type Server struct {
 	SSHUser    string `json:"ssh_user"`
 	SSHPort    int    `json:"ssh_port"`
 	SSHKeyPath string `json:"ssh_key_path"`
+
+	// Proxmox-specific fields
+	ProxmoxAPIKey    *ProxmoxAPIKey `json:"proxmox_api_key,omitempty"`    // Only set if this is a Proxmox host
+	IsProxmoxVM      bool           `json:"is_proxmox_vm"`                // True if this server is a Proxmox VM
+	ProxmoxVMID      int            `json:"proxmox_vm_id,omitempty"`      // VMID if this is a Proxmox VM
+	ProxmoxNodeName  string         `json:"proxmox_node_name,omitempty"`  // Node name for Proxmox operations
+	LastVMDiscovery  time.Time      `json:"last_vm_discovery"`            // Last time we discovered VMs (for Proxmox hosts)
 }
 
 type ServerAction struct {
@@ -61,4 +71,27 @@ func (s *Server) GetTotalUptime() int64 {
 		total += int64(time.Since(s.LastStateChange).Seconds())
 	}
 	return total
+}
+
+// IsProxmoxHost returns true if this server is a Proxmox host with API key
+func (s *Server) IsProxmoxHost() bool {
+	return s.ProxmoxAPIKey != nil && s.SystemInfo != nil && s.SystemInfo.Type == SystemTypeProxmox
+}
+
+// GetProxmoxAPIToken returns the formatted API token for Proxmox API calls
+func (s *Server) GetProxmoxAPIToken() string {
+	if s.ProxmoxAPIKey == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s@%s!%s=%s",
+		s.ProxmoxAPIKey.Username,
+		s.ProxmoxAPIKey.Realm,
+		s.ProxmoxAPIKey.TokenID,
+		s.ProxmoxAPIKey.Secret)
+}
+
+// ShouldDiscoverVMs returns true if this Proxmox host should discover VMs
+func (s *Server) ShouldDiscoverVMs(vmDiscoveryInterval time.Duration) bool {
+	return s.IsProxmoxHost() &&
+		(s.LastVMDiscovery.IsZero() || time.Since(s.LastVMDiscovery) >= vmDiscoveryInterval)
 }

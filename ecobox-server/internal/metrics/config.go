@@ -13,8 +13,12 @@ var StandardMetrics = struct {
 	PowerStateChange   string
 	PowerStateOn       string
 	PowerStateOff      string
+	PowerStateStopped  string  // New: VM stopped state
 	PowerStateSuspended string
 	PowerStateInitFailed string
+	PowerStateWaking     string  // New transitioning state
+	PowerStateSuspending string  // New transitioning state
+	PowerStateStopping   string  // New transitioning state
 	
 	// Wake/suspend operations
 	WakeAttempt       string
@@ -63,8 +67,12 @@ var StandardMetrics = struct {
 	PowerStateChange:     "power_state_change",
 	PowerStateOn:         "power_state_on",
 	PowerStateOff:        "power_state_off", 
+	PowerStateStopped:    "power_state_stopped",    // New: VM stopped state
 	PowerStateSuspended:  "power_state_suspended",
 	PowerStateInitFailed: "power_state_init_failed",
+	PowerStateWaking:     "power_state_waking",     // New transitioning state
+	PowerStateSuspending: "power_state_suspending", // New transitioning state
+	PowerStateStopping:   "power_state_stopping",   // New transitioning state
 	
 	// Wake/suspend operations
 	WakeAttempt:     "wake_attempt",
@@ -127,8 +135,12 @@ func AllMetrics() []string {
 		StandardMetrics.PowerStateChange,
 		StandardMetrics.PowerStateOn,
 		StandardMetrics.PowerStateOff,
+		StandardMetrics.PowerStateStopped,    // New: VM stopped state
 		StandardMetrics.PowerStateSuspended,
 		StandardMetrics.PowerStateInitFailed,
+		StandardMetrics.PowerStateWaking,     // New transitioning state
+		StandardMetrics.PowerStateSuspending, // New transitioning state
+		StandardMetrics.PowerStateStopping,   // New transitioning state
 		
 		// Wake/suspend operations
 		StandardMetrics.WakeAttempt,

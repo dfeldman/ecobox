@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Client represents a Proxmox API client
@@ -38,6 +40,35 @@ func NewClient(host string, node string, apiToken string, insecureSkipVerify boo
 	}
 }
 
+// ProxmoxBool handles Proxmox's inconsistent boolean/number representation
+type ProxmoxBool bool
+
+// UnmarshalJSON implements json.Unmarshaler to handle both boolean and number inputs
+func (pb *ProxmoxBool) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		*pb = false
+		return nil
+	}
+	
+	// Try parsing as boolean first
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		*pb = ProxmoxBool(b)
+		return nil
+	}
+	
+	// Try parsing as number
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*pb = ProxmoxBool(n != 0)
+		return nil
+	}
+	
+	// Default to false if can't parse
+	*pb = false
+	return nil
+}
+
 // VM represents a virtual machine
 type VM struct {
 	VMID                int     `json:"vmid"`
@@ -56,11 +87,11 @@ type VM struct {
 	Uptime              int64   `json:"uptime"`
 	PID                 int     `json:"pid,omitempty"`
 	QMPStatus           string  `json:"qmpstatus,omitempty"`
-	Lock                string  `json:"lock,omitempty"`
-	Tags                string  `json:"tags,omitempty"`
-	Template            bool    `json:"template,omitempty"`
-	RunningMachine      string  `json:"running-machine,omitempty"`
-	RunningQemu         string  `json:"running-qemu,omitempty"`
+	Lock                string      `json:"lock,omitempty"`
+	Tags                string      `json:"tags,omitempty"`
+	Template            ProxmoxBool `json:"template,omitempty"`
+	RunningMachine      string      `json:"running-machine,omitempty"`
+	RunningQemu         string      `json:"running-qemu,omitempty"`
 }
 
 // VMStatus represents detailed VM status
@@ -82,13 +113,13 @@ type VMStatus struct {
 	Uptime              int64   `json:"uptime"`
 	PID                 int     `json:"pid,omitempty"`
 	QMPStatus           string  `json:"qmpstatus,omitempty"`
-	Lock                string  `json:"lock,omitempty"`
-	Tags                string  `json:"tags,omitempty"`
-	Template            bool    `json:"template,omitempty"`
-	RunningMachine      string  `json:"running-machine,omitempty"`
-	RunningQemu         string  `json:"running-qemu,omitempty"`
-	Serial              bool    `json:"serial,omitempty"`
-	PressureCPUFull     float64 `json:"pressurecpufull,omitempty"`
+	Lock                string      `json:"lock,omitempty"`
+	Tags                string      `json:"tags,omitempty"`
+	Template            ProxmoxBool `json:"template,omitempty"`
+	RunningMachine      string      `json:"running-machine,omitempty"`
+	RunningQemu         string      `json:"running-qemu,omitempty"`
+	Serial              ProxmoxBool `json:"serial,omitempty"`
+	PressureCPUFull     float64     `json:"pressurecpufull,omitempty"`
 	PressureCPUSome     float64 `json:"pressurecpusome,omitempty"`
 	PressureIOFull      float64 `json:"pressueiofull,omitempty"`
 	PressureIOSome      float64 `json:"pressureiosome,omitempty"`
@@ -159,6 +190,16 @@ func (c *Client) doRequest(method, path string, body interface{}) ([]byte, error
 	// Set authorization header for API token
 	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s", c.APIToken))
 	
+	// Debug logging for API token
+	if strings.Contains(path, "/nodes") {
+		logrus.WithFields(logrus.Fields{
+			"path":       path,
+			"api_token":  c.APIToken,
+			"base_url":   c.BaseURL,
+			"node":       c.Node,
+		}).Debug("Making Proxmox API request")
+	}
+	
 	if body != nil {
 		if _, ok := body.(url.Values); ok {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -187,6 +228,40 @@ func (c *Client) doRequest(method, path string, body interface{}) ([]byte, error
 	}
 
 	return respBody, nil
+}
+
+// Node represents a Proxmox node
+type Node struct {
+	Node   string  `json:"node"`
+	Status string  `json:"status"`
+	Type   string  `json:"type"`
+	CPU    float64 `json:"cpu"`
+	MaxCPU int     `json:"maxcpu"`
+	Mem    int64   `json:"mem"`
+	MaxMem int64   `json:"maxmem"`
+	Disk   int64   `json:"disk"`
+	MaxDisk int64  `json:"maxdisk"`
+	Uptime int64   `json:"uptime"`
+}
+
+// ListNodes returns a list of all nodes in the cluster
+func (c *Client) ListNodes() ([]Node, error) {
+	path := "/nodes"
+	
+	respBody, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Data []Node `json:"data"`
+	}
+	
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse nodes response: %w", err)
+	}
+
+	return response.Data, nil
 }
 
 // ListVMs returns a list of all VMs on the node

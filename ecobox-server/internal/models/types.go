@@ -5,11 +5,16 @@ import "time"
 type PowerState string
 
 const (
-	PowerStateOn        PowerState = "on"
-	PowerStateOff       PowerState = "off"
-	PowerStateSuspended PowerState = "suspended"
-	PowerStateUnknown   PowerState = "unknown"
-	PowerStateInitFailed PowerState = "init_failed"
+	PowerStateOn           PowerState = "on"
+	PowerStateOff          PowerState = "off"
+	PowerStateStopped      PowerState = "stopped"     // New: VM is stopped (can be started instantly)
+	PowerStateSuspended    PowerState = "suspended"   // VM is suspended/paused (RAM preserved)
+	PowerStateUnknown      PowerState = "unknown"
+	PowerStateInitFailed   PowerState = "init_failed"
+	// Transitioning states to indicate power management operations in progress
+	PowerStateWaking       PowerState = "waking"       // Wake operation in progress
+	PowerStateSuspending   PowerState = "suspending"   // Suspend operation in progress
+	PowerStateStopping     PowerState = "stopping"     // New: Stop operation in progress
 )
 
 type ServiceType string
@@ -21,6 +26,14 @@ const (
 	ServiceTypeSMB     ServiceType = "smb"
 	ServiceTypeHTTP    ServiceType = "http"
 	ServiceTypeHTTPS   ServiceType = "https"
+	ServiceTypeTelnet  ServiceType = "telnet"
+	ServiceTypeNFS     ServiceType = "nfs"
+	ServiceTypeFTP     ServiceType = "ftp"
+	ServiceTypeDB      ServiceType = "database"
+	ServiceTypeDNS     ServiceType = "dns"
+	ServiceTypeMail    ServiceType = "mail"
+	ServiceTypeLDAP    ServiceType = "ldap"
+	ServiceTypeProxmox ServiceType = "proxmox"
 	ServiceTypeCustom  ServiceType = "custom"
 )
 
@@ -34,8 +47,9 @@ const (
 type Source string
 
 const (
-	SourceConfig Source = "config"
-	SourceAPI    Source = "api"
+	SourceConfig     Source = "config"
+	SourceAPI        Source = "api"
+	SourceDiscovered Source = "discovered"
 )
 
 type ActionType string
@@ -43,6 +57,8 @@ type ActionType string
 const (
 	ActionTypeWakeUp      ActionType = "wake"
 	ActionTypeSuspend     ActionType = "suspend"
+	ActionTypeShutdown    ActionType = "shutdown"    // New: Clean shutdown (Proxmox VMs and regular servers)
+	ActionTypeStop        ActionType = "stop"        // New: Force stop (Proxmox VMs only)
 	ActionTypeInitialize  ActionType = "initialize"
 	ActionTypeReconcile   ActionType = "reconcile"
 )
@@ -51,10 +67,11 @@ const (
 type SystemType string
 
 const (
-	SystemTypeLinux   SystemType = "linux"
-	SystemTypeWindows SystemType = "windows"
-	SystemTypeProxmox SystemType = "proxmox"
-	SystemTypeUnknown SystemType = "unknown"
+	SystemTypeLinux     SystemType = "linux"
+	SystemTypeWindows   SystemType = "windows"
+	SystemTypeProxmox   SystemType = "proxmox"
+	SystemTypeProxmoxVM SystemType = "proxmox-vm"
+	SystemTypeUnknown   SystemType = "unknown"
 )
 
 // SystemInfo contains comprehensive system information collected from servers

@@ -198,6 +198,13 @@ h1 {
     font-size: 0.875rem;
 }
 
+/* Style for VMs without IP addresses (no guest agent installed) */
+.unknown-ip {
+    color: var(--warning-color);
+    font-style: italic;
+    font-weight: 500;
+}
+
 .power-state {
     padding: 4px 8px;
     border-radius: 4px;
@@ -510,6 +517,209 @@ h1 {
     text-align: center;
 }
 
+/* Table-style layout for nested servers */
+.servers-table {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+
+.server-row {
+    background: var(--card-bg);
+    transition: all 0.2s;
+}
+
+.server-row:hover {
+    background: #f9fafb;
+}
+
+.server-row.updating {
+    background: #fef3c7;
+}
+
+.host-row {
+    border-bottom: 2px solid var(--border-color);
+}
+
+.vm-row {
+    background: #f8fafc;
+    border-left: 4px solid var(--primary-color);
+    margin-left: 20px;
+}
+
+.vm-row:hover {
+    background: #f1f5f9;
+}
+
+.server-table-content {
+    padding: 20px;
+}
+
+.server-main-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.server-identity {
+    flex: 1;
+}
+
+.vm-identity {
+    margin-left: 20px;
+}
+
+.server-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.vm-row .server-name {
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.server-hostname {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin-bottom: 4px;
+}
+
+.vm-id {
+    color: var(--primary-color);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.power-state {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-align: center;
+    min-width: 80px;
+}
+
+.power-state.on {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.power-state.off {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.power-state.suspended {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.server-metrics-inline {
+    margin: 16px 0;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 6px;
+}
+
+.metrics-grid-inline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 16px;
+}
+
+.metric-item {
+    text-align: center;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.metric-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.server-actions-row {
+    display: flex;
+    gap: 8px;
+    margin: 16px 0;
+    flex-wrap: wrap;
+}
+
+.services-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.services-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    min-width: 60px;
+}
+
+.services-list-inline {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.service-tag {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    background: #f3f4f6;
+    color: var(--text-secondary);
+}
+
+.service-tag.running {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.service-tag.stopped {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.service-status {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #9ca3af;
+}
+
+.service-status.running {
+    background: #10b981;
+}
+
+.service-status.stopped {
+    background: #ef4444;
+}
+
+.vm-action {
+    opacity: 0.6;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .container {
@@ -554,6 +764,33 @@ h1 {
     .user-menu {
         flex-wrap: wrap;
         justify-content: center;
+    }
+    
+    .vm-row {
+        margin-left: 10px;
+    }
+    
+    .vm-identity {
+        margin-left: 10px;
+    }
+    
+    .server-main-info {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .metrics-grid-inline {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .server-actions-row {
+        justify-content: center;
+    }
+    
+    .services-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
     }
 }
 

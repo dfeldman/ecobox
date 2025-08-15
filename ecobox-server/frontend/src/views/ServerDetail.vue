@@ -22,6 +22,18 @@
               <p v-if="server.system_info?.os_version" class="text-xs" style="color: var(--text-light); margin: 0;">
                 {{ server.system_info.os_version }}
               </p>
+              <div v-if="parentServer" class="mt-2">
+                <router-link 
+                  :to="`/server/${parentServer.id}`" 
+                  class="text-xs flex items-center gap-1 hover:underline"
+                  style="color: var(--text-secondary);"
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0l-4 4m4-4l-4-4" />
+                  </svg>
+                  VM Host: {{ parentServer.name }}
+                </router-link>
+              </div>
             </div>
           </div>
           
@@ -210,8 +222,11 @@
                     :show-actions="server.system_info.type === 'proxmox'"
                     :vm-system-info="getVMSystemInfo(vm)"
                     :uptime-seconds="getVMUptime(vm)"
+                    :servers="servers"
                     @wake="handleVMWake"
                     @suspend="handleVMSuspend"
+                    @shutdown="handleVMShutdown"
+                    @stop="handleVMStop"
                   />
                 </div>
               </div>
@@ -238,7 +253,7 @@
 </template>
 
 <script>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useServersStore } from '@/stores/servers'
 import ThemeToggle from '@/components/ThemeToggle.vue'
@@ -326,6 +341,13 @@ export default {
       if (!server.value?.system_info?.last_updated) return 'Never'
       return new Date(server.value.system_info.last_updated).toLocaleString()
     })
+
+    const parentServer = computed(() => {
+      if (!server.value?.parent_server_id || !serversStore.servers) return null
+      return serversStore.servers.find(s => s.id === server.value.parent_server_id)
+    })
+    
+    const servers = computed(() => serversStore.servers || [])
     
     const formatBytes = (bytes) => {
       if (!bytes) return '0 B'
@@ -435,6 +457,34 @@ export default {
       }
     }
 
+    const handleVMShutdown = async (vmId) => {
+      actionLoading.value = true
+      try {
+        const result = await serversStore.shutdownServer(vmId)
+        if (result.success) {
+          console.log(result.message)
+        } else {
+          console.error(result.message)
+        }
+      } finally {
+        actionLoading.value = false
+      }
+    }
+
+    const handleVMStop = async (vmId) => {
+      actionLoading.value = true
+      try {
+        const result = await serversStore.stopServer(vmId)
+        if (result.success) {
+          console.log(result.message)
+        } else {
+          console.error(result.message)
+        }
+      } finally {
+        actionLoading.value = false
+      }
+    }
+
     const handleServiceClick = (service) => {
       console.log('Service clicked:', service)
       // Could open service URL in new tab or show service details
@@ -447,6 +497,16 @@ export default {
       await fetchServer()
       serversStore.initializeWebSocket()
     })
+    
+    // Watch for route parameter changes to refetch server data
+    watch(
+      () => route.params.id,
+      async (newId, oldId) => {
+        if (newId !== oldId) {
+          await fetchServer()
+        }
+      }
+    )
     
     onUnmounted(() => {
       // Don't disconnect websocket here as it's shared
@@ -468,6 +528,8 @@ export default {
       networkUsage,
       uptimeDisplay,
       formatLastUpdated,
+      parentServer,
+      servers,
       formatBytes,
       showWakeButton,
       showSuspendButton,
@@ -478,6 +540,8 @@ export default {
       handleSuspend,
       handleVMWake,
       handleVMSuspend,
+      handleVMShutdown,
+      handleVMStop,
       handleServiceClick
     }
   }

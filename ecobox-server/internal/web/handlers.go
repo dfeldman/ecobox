@@ -117,6 +117,20 @@ func (ws *WebServer) handleGetServers(w http.ResponseWriter, r *http.Request) {
 		serverList = append(serverList, server)
 	}
 
+	// Debug logging to see what servers we're returning
+	ws.logger.WithField("server_count", len(serverList)).Debug("Returning servers to frontend")
+	for i, server := range serverList {
+		ws.logger.WithFields(map[string]interface{}{
+			"index":           i,
+			"name":            server.Name,
+			"hostname":        server.Hostname,
+			"current_state":   server.CurrentState,
+			"initialized":     server.Initialized,
+			"is_proxmox_vm":   server.IsProxmoxVM,
+			"parent_server":   server.ParentServerID,
+		}).Debug("Server details")
+	}
+
 	response := APIResponse{
 		Success: true,
 		Data:    serverList,
@@ -226,15 +240,123 @@ func (ws *WebServer) handleSuspendServer(w http.ResponseWriter, r *http.Request)
 	ws.writeJSONResponse(w, http.StatusOK, response)
 }
 
+// handleShutdownServer handles clean shutdown requests for a server
+func (ws *WebServer) handleShutdownServer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverID := vars["id"]
+
+	server, err := ws.storage.GetServer(serverID)
+	if err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Server not found: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusNotFound, response)
+		return
+	}
+
+	// Set desired state to "stopped"
+	server.DesiredState = models.PowerStateStopped
+
+	if err := ws.storage.UpdateServer(server); err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to update server state: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusInternalServerError, response)
+		return
+	}
+
+	// Attempt to shutdown the server
+	if err := ws.powerManager.ShutdownServer(server); err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to shutdown server: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusInternalServerError, response)
+		return
+	}
+
+	response := APIResponse{
+		Success: true,
+		Message: fmt.Sprintf("Shutdown command sent to %s", server.Name),
+	}
+
+	ws.writeJSONResponse(w, http.StatusOK, response)
+}
+
+// handleStopServer handles force stop requests for a server (Proxmox VMs only)
+func (ws *WebServer) handleStopServer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverID := vars["id"]
+
+	server, err := ws.storage.GetServer(serverID)
+	if err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Server not found: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusNotFound, response)
+		return
+	}
+
+	// Check if this is a Proxmox VM
+	if !server.IsProxmoxVM {
+		response := APIResponse{
+			Success: false,
+			Message: "Force stop is only supported for Proxmox VMs",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	// Set desired state to "stopped"
+	server.DesiredState = models.PowerStateStopped
+
+	if err := ws.storage.UpdateServer(server); err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to update server state: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusInternalServerError, response)
+		return
+	}
+
+	// Attempt to force stop the server
+	if err := ws.powerManager.StopServer(server); err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to stop server: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusInternalServerError, response)
+		return
+	}
+
+	response := APIResponse{
+		Success: true,
+		Message: fmt.Sprintf("Stop command sent to %s", server.Name),
+	}
+
+	ws.writeJSONResponse(w, http.StatusOK, response)
+}
+
 // handleWebSocket upgrades connection to WebSocket and manages real-time updates
 func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Authenticate the WebSocket connection
+	user, err := ws.authManager.AuthenticateRequest(r)
+	if err != nil {
+		ws.logger.Errorf("WebSocket authentication failed: %v", err)
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+	
 	conn, err := ws.wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		ws.logger.Errorf("Failed to upgrade WebSocket connection: %v", err)
 		return
 	}
 
-	ws.logger.Info("New WebSocket connection established")
+	ws.logger.WithField("user", user.Username).Info("New WebSocket connection established")
 
 	// Add client to the list
 	ws.mu.Lock()
@@ -250,7 +372,7 @@ func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		delete(ws.wsClients, conn)
 		ws.mu.Unlock()
 		conn.Close()
-		ws.logger.Info("WebSocket connection closed")
+		ws.logger.WithField("user", user.Username).Info("WebSocket connection closed")
 	}()
 
 	// Keep connection alive and handle ping/pong

@@ -11,11 +11,15 @@ type DashboardConfig struct {
 	WoLRetryInterval int    `toml:"wol_retry_interval"` // WoL retry interval in seconds (default: 10)
 	WoLMaxRetries    int    `toml:"wol_max_retries"`   // Maximum WoL retries (default: 5)
 	LogLevel         string `toml:"log_level"`         // "debug", "info", "warn", "error"
+	LogFile          string `toml:"log_file"`          // Path to log file (empty means stdout only)
 
 	// System monitoring settings
 	SystemCheckInterval    int  `toml:"system_check_interval"`    // System info check interval in seconds (default: 300)
 	InitCheckInterval      int  `toml:"init_check_interval"`      // Initialization check interval in seconds (default: 3600)
 	ForceReinitialization  bool `toml:"force_reinitialization"`  // Force re-initialization on next startup (default: false)
+	
+	// Proxmox VM discovery settings
+	VMDiscoveryInterval    int  `toml:"vm_discovery_interval"`    // VM discovery interval in seconds (default: 300)
 
 	// Metrics settings
 	MetricsDataDir         string `toml:"metrics_data_dir"`        // Directory to store metrics data (default: "./metrics")
@@ -80,6 +84,9 @@ func (c *Config) SetDefaults() {
 	}
 	if c.Dashboard.InitCheckInterval == 0 {
 		c.Dashboard.InitCheckInterval = 3600 // 1 hour
+	}
+	if c.Dashboard.VMDiscoveryInterval == 0 {
+		c.Dashboard.VMDiscoveryInterval = 300 // 5 minutes
 	}
 
 	// Set metrics defaults

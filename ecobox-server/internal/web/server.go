@@ -5,8 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +95,20 @@ func (ws *WebServer) Stop(ctx context.Context) error {
 	return ws.server.Shutdown(ctx)
 }
 
+// vueAppExists checks if Vue.js build exists
+func (ws *WebServer) vueAppExists() bool {
+	_, err := os.Stat("./web/static-vue/index.html")
+	return err == nil
+}
+
+// handleVueApp serves the Vue.js application
+func (ws *WebServer) handleVueApp(w http.ResponseWriter, r *http.Request) {
+	// Simply serve the Vue.js index.html file
+	indexPath := "./web/static-vue/index.html"
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	http.ServeFile(w, r, indexPath)
+}
+
 // setupRoutes configures all HTTP routes
 func (ws *WebServer) setupRoutes() {
 	// Authentication routes (public)
@@ -99,6 +117,19 @@ func (ws *WebServer) setupRoutes() {
 	ws.router.HandleFunc("/setup", ws.handleSetup).Methods("GET", "POST")
 
 	// Static files (public)
+	// Serve Vue.js static files if they exist
+	if ws.vueAppExists() {
+		// Serve Vue.js CSS and JS from root paths
+		ws.router.PathPrefix("/css/").Handler(http.StripPrefix("/css/", http.FileServer(http.Dir("./web/static-vue/css/"))))
+		ws.router.PathPrefix("/js/").Handler(http.StripPrefix("/js/", http.FileServer(http.Dir("./web/static-vue/js/"))))
+		// Serve other Vue.js assets (favicon, etc.)
+		ws.router.PathPrefix("/static-vue/").Handler(http.StripPrefix("/static-vue/", http.FileServer(http.Dir("./web/static-vue/"))))
+		// Serve favicon directly from Vue build
+		ws.router.HandleFunc("/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, "./web/static-vue/favicon.svg")
+		})
+	}
+	// Serve legacy static files
 	ws.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static/"))))
 
 	// API routes (protected)
@@ -106,6 +137,8 @@ func (ws *WebServer) setupRoutes() {
 	api.HandleFunc("/servers", ws.handleGetServers).Methods("GET")
 	api.HandleFunc("/servers/{id}/wake", ws.handleWakeServer).Methods("POST")
 	api.HandleFunc("/servers/{id}/suspend", ws.handleSuspendServer).Methods("POST")
+	api.HandleFunc("/servers/{id}/shutdown", ws.handleShutdownServer).Methods("POST")  // New: Clean shutdown
+	api.HandleFunc("/servers/{id}/stop", ws.handleStopServer).Methods("POST")          // New: Force stop (VMs only)
 	api.HandleFunc("/servers/{id}", ws.handleGetServer).Methods("GET")
 	
 	// Metrics API routes (protected)
@@ -131,12 +164,43 @@ func (ws *WebServer) setupRoutes() {
 	// WebSocket endpoint (protected)
 	ws.router.HandleFunc("/ws", ws.handleWebSocket)
 
-	// User management page (protected)
+	// User management page (protected - legacy routes for backward compatibility)
 	ws.router.HandleFunc("/users", ws.handleUsersPage).Methods("GET")
 	ws.router.HandleFunc("/change-password", ws.handleChangePasswordPage).Methods("GET")
 
-	// Main page (protected)
-	ws.router.HandleFunc("/", ws.handleIndex).Methods("GET")
+	// Main page (protected) - serve Vue.js app if available, otherwise legacy
+	ws.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if ws.vueAppExists() {
+			ws.handleVueApp(w, r)
+		} else {
+			ws.handleIndex(w, r)
+		}
+	}).Methods("GET")
+
+	// SPA routing - catch all routes and serve Vue.js app (for client-side routing)
+	ws.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only serve Vue app for routes that look like SPA routes
+		// Skip API routes, WebSocket, auth routes, and asset requests
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/api/") || 
+		   strings.HasPrefix(path, "/ws") || 
+		   strings.HasPrefix(path, "/login") || 
+		   strings.HasPrefix(path, "/logout") || 
+		   strings.HasPrefix(path, "/setup") || 
+		   strings.HasPrefix(path, "/static") ||
+		   strings.HasPrefix(path, "/css/") ||
+		   strings.HasPrefix(path, "/js/") ||
+		   strings.Contains(path, ".") { // Skip requests for files with extensions
+			http.NotFound(w, r)
+			return
+		}
+		
+		if ws.vueAppExists() {
+			ws.handleVueApp(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	}).Methods("GET")
 
 	// Add middleware
 	ws.router.Use(ws.loggingMiddleware)
@@ -231,4 +295,42 @@ func (rec *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return hijacker.Hijack()
 	}
 	return nil, nil, fmt.Errorf("hijacking not supported")
+}
+
+// ServeVueTemplate serves the Vue.js application template
+func (ws *WebServer) ServeVueTemplate(w http.ResponseWriter, r *http.Request) {
+	// Determine the file path based on the request URL
+	filePath := filepath.Join("web", "dist", r.URL.Path)
+	if r.URL.Path == "/" {
+		filePath = filepath.Join("web", "dist", "index.html")
+	}
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		ws.logger.Warnf("File not found: %s", filePath)
+		http.NotFound(w, r)
+		return
+	}
+
+	// Parse and execute the template
+	tmpl, err := template.ParseFiles(filePath)
+	if err != nil {
+		ws.logger.Errorf("Failed to parse template: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Extract the Vue.js app's base URL from the request
+	baseURL := r.URL.Path
+	if strings.HasSuffix(baseURL, "/") {
+		baseURL = baseURL[:len(baseURL)-1]
+	}
+
+	// Execute the template with the base URL
+	if err := tmpl.Execute(w, map[string]interface{}{
+		"BaseURL": baseURL,
+	}); err != nil {
+		ws.logger.Errorf("Failed to execute template: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
