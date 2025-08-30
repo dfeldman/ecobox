@@ -46,6 +46,9 @@ type Server struct {
 	ProxmoxVMID      int            `json:"proxmox_vm_id,omitempty"`      // VMID if this is a Proxmox VM
 	ProxmoxNodeName  string         `json:"proxmox_node_name,omitempty"`  // Node name for Proxmox operations
 	LastVMDiscovery  time.Time      `json:"last_vm_discovery"`            // Last time we discovered VMs (for Proxmox hosts)
+
+	// User-configurable power management options
+	PowerOptions *PowerOptions `json:"power_options,omitempty"` // Power management settings from user input
 }
 
 type ServerAction struct {
@@ -94,4 +97,48 @@ func (s *Server) GetProxmoxAPIToken() string {
 func (s *Server) ShouldDiscoverVMs(vmDiscoveryInterval time.Duration) bool {
 	return s.IsProxmoxHost() &&
 		(s.LastVMDiscovery.IsZero() || time.Since(s.LastVMDiscovery) >= vmDiscoveryInterval)
+}
+
+// EnsurePowerOptions ensures the server has PowerOptions initialized with defaults
+func (s *Server) EnsurePowerOptions() {
+	if s.PowerOptions == nil {
+		s.PowerOptions = NewDefaultPowerOptions()
+	}
+}
+
+// GetPowerOptions returns the server's power options, initializing with defaults if needed
+func (s *Server) GetPowerOptions() *PowerOptions {
+	s.EnsurePowerOptions()
+	return s.PowerOptions
+}
+
+// ShouldAutoSuspend checks if the server should be auto-suspended based on current metrics
+func (s *Server) ShouldAutoSuspend() bool {
+	if s.PowerOptions == nil || s.SystemInfo == nil {
+		return false
+	}
+
+	// Convert network usage from MBps to kbps
+	netUsageKbps := (s.SystemInfo.NetworkUsage.MBpsRecv + s.SystemInfo.NetworkUsage.MBpsSent) * 1024.0 * 8.0
+
+	// Use the first load average if available
+	loadAvg := 0.0
+	if len(s.SystemInfo.LoadAverage) > 0 {
+		loadAvg = s.SystemInfo.LoadAverage[0]
+	}
+
+	return s.PowerOptions.ShouldAutoSuspend(
+		s.SystemInfo.CPUUsage,
+		s.SystemInfo.MemoryUsage.UsedPercent,
+		loadAvg,
+		netUsageKbps,
+	)
+}
+
+// ShouldWakeUp checks if the server should wake up based on current time and schedule
+func (s *Server) ShouldWakeUp(currentTime time.Time) bool {
+	if s.PowerOptions == nil {
+		return false
+	}
+	return s.PowerOptions.ShouldWakeUp(currentTime)
 }

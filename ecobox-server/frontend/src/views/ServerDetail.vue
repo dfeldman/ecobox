@@ -203,6 +203,14 @@
               :actions="server.recent_actions"
               :max-visible="5"
             />
+
+            <!-- Power Options -->
+            <PowerOptions
+              v-if="server"
+              :server-id="server.id"
+              :power-options="server.power_options"
+              @updated="handlePowerOptionsUpdated"
+            />
           </div>
 
           <!-- Middle & Right Columns - VMs & Charts -->
@@ -262,6 +270,7 @@ import VMDetails from '@/components/VMDetails.vue'
 import SystemCapabilities from '@/components/SystemCapabilities.vue'
 import RecentActions from '@/components/RecentActions.vue'
 import MetricsCharts from '@/components/MetricsCharts.vue'
+import PowerOptions from '@/components/PowerOptions.vue'
 
 export default {
   name: 'ServerDetail',
@@ -271,7 +280,8 @@ export default {
     VMDetails,
     SystemCapabilities,
     RecentActions,
-    MetricsCharts
+    MetricsCharts,
+    PowerOptions
   },
   setup() {
     const route = useRoute()
@@ -492,6 +502,14 @@ export default {
         window.open(service.url, '_blank')
       }
     }
+
+    const handlePowerOptionsUpdated = (updatedPowerOptions) => {
+      // Update the server's power options in the store
+      if (server.value) {
+        server.value.power_options = updatedPowerOptions
+        serversStore.updateServer(server.value)
+      }
+    }
     
     onMounted(async () => {
       await fetchServer()
@@ -542,7 +560,8 @@ export default {
       handleVMSuspend,
       handleVMShutdown,
       handleVMStop,
-      handleServiceClick
+      handleServiceClick,
+      handlePowerOptionsUpdated
     }
   }
 }

@@ -130,6 +130,20 @@ export const useServersStore = defineStore('servers', {
       }
     },
 
+    // Update a server in both the servers list and currentServer
+    updateServer(updatedServer) {
+      // Update in servers list
+      const index = this.servers.findIndex(s => s.id === updatedServer.id)
+      if (index !== -1) {
+        this.servers[index] = updatedServer
+      }
+      
+      // Update currentServer if it's the same server
+      if (this.currentServer && this.currentServer.id === updatedServer.id) {
+        this.currentServer = updatedServer
+      }
+    },
+
     // WebSocket handlers
     initializeWebSocket() {
       websocketService.connect()

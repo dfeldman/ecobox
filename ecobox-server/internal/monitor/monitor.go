@@ -123,6 +123,9 @@ func (m *Monitor) Start() {
 	
 	// Start Proxmox VM discovery loop
 	go m.proxmoxDiscoveryLoop()
+	
+	// Start power management loop for auto-suspend and wake scheduling
+	go m.powerManagementLoop()
 }
 
 // Stop gracefully stops all monitoring processes
@@ -1582,4 +1585,182 @@ func (m *Monitor) populateSystemInfoVMs(server *models.Server, vms []proxmox.VM,
 	m.logger.WithField("server", server.Name).
 		WithField("vm_count", len(server.SystemInfo.VMs)).
 		Debug("Populated system_info VMs array for frontend")
+}
+
+// powerManagementLoop handles power management operations including auto-suspend and wake scheduling
+func (m *Monitor) powerManagementLoop() {
+	// Use a shorter interval for power management checks (default: 60 seconds)
+	interval := 60 * time.Second
+	if m.config.Dashboard.UpdateInterval > 0 {
+		// Use half the update interval, but minimum 30 seconds
+		powerInterval := time.Duration(m.config.Dashboard.UpdateInterval/2) * time.Second
+		if powerInterval < 30*time.Second {
+			powerInterval = 30 * time.Second
+		}
+		interval = powerInterval
+	}
+	
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	m.logger.WithField("interval", interval).Info("Starting power management loop")
+
+	// Perform initial power management check
+	m.performPowerManagement()
+
+	for {
+		select {
+		case <-ticker.C:
+			m.performPowerManagement()
+		case <-m.stopChan:
+			m.logger.Info("Power management loop stopped")
+			return
+		}
+	}
+}
+
+// performPowerManagement checks all servers for auto-suspend and wake scheduling
+func (m *Monitor) performPowerManagement() {
+	servers := m.storage.GetAllServers()
+	currentTime := time.Now()
+	
+	m.logger.Debugf("Performing power management on %d servers", len(servers))
+	
+	for _, server := range servers {
+		// Skip servers without power options
+		if server.PowerOptions == nil {
+			continue
+		}
+		
+		// Handle wake scheduling for powered-off servers
+		if (server.CurrentState == models.PowerStateOff || 
+			server.CurrentState == models.PowerStateStopped ||
+			server.CurrentState == models.PowerStateSuspended) &&
+			server.ShouldWakeUp(currentTime) {
+			
+			m.handleScheduledWakeUp(server)
+		}
+		
+		// Handle auto-suspend for running servers
+		if server.CurrentState == models.PowerStateOn && 
+			server.PowerOptions.SuspendMethod != models.SuspendMethodNone {
+			
+			m.handleAutoSuspend(server)
+		}
+	}
+	
+	// Record power management metrics
+	m.recordMetric("_system", "power_management_cycle", 1)
+}
+
+// handleScheduledWakeUp attempts to wake up a server based on its wake schedule
+func (m *Monitor) handleScheduledWakeUp(server *models.Server) {
+	m.logger.WithFields(logrus.Fields{
+		"server": server.Name,
+		"state":  server.CurrentState,
+	}).Info("Attempting scheduled wake-up")
+	
+	// Record the wake attempt
+	server.RecentActions = append(server.RecentActions, models.ServerAction{
+		Timestamp:   time.Now(),
+		Action:      models.ActionTypeWakeUp,
+		Success:     false, // Will be updated if successful
+		InitiatedBy: "scheduler",
+	})
+	
+	// Attempt to wake the server
+	err := m.powerManager.WakeServer(server)
+	if err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"server": server.Name,
+			"error":  err,
+		}).Error("Failed to wake server via schedule")
+		
+		// Update the action with failure
+		if len(server.RecentActions) > 0 {
+			server.RecentActions[len(server.RecentActions)-1].ErrorMsg = err.Error()
+		}
+	} else {
+		m.logger.WithField("server", server.Name).Info("Successfully initiated scheduled wake-up")
+		
+		// Update the action with success
+		if len(server.RecentActions) > 0 {
+			server.RecentActions[len(server.RecentActions)-1].Success = true
+		}
+		
+		// Update desired state and save
+		server.DesiredState = models.PowerStateOn
+	}
+	
+	// Save server state
+	m.storage.UpdateServer(server)
+	
+	// Record metrics
+	actionResult := "failure"
+	if err == nil {
+		actionResult = "success"
+	}
+	m.recordMetric(server.Name, fmt.Sprintf("scheduled_wakeup_%s", actionResult), 1)
+}
+
+// handleAutoSuspend checks if a server should be auto-suspended and performs the action
+func (m *Monitor) handleAutoSuspend(server *models.Server) {
+	// Only check servers that have been initialized and have system info
+	if !server.Initialized || server.SystemInfo == nil {
+		return
+	}
+	
+	// Check if server meets auto-suspend conditions
+	if !server.ShouldAutoSuspend() {
+		return
+	}
+	
+	m.logger.WithFields(logrus.Fields{
+		"server":     server.Name,
+		"cpu_usage":  server.SystemInfo.CPUUsage,
+		"mem_usage":  server.SystemInfo.MemoryUsage.UsedPercent,
+		"load_avg":   server.SystemInfo.LoadAverage,
+	}).Info("Server meets auto-suspend conditions")
+	
+	// Record the suspend attempt
+	server.RecentActions = append(server.RecentActions, models.ServerAction{
+		Timestamp:   time.Now(),
+		Action:      models.ActionTypeSuspend,
+		Success:     false, // Will be updated if successful
+		InitiatedBy: "auto-suspend",
+	})
+	
+	// Attempt to suspend the server
+	err := m.powerManager.SuspendServer(server)
+	if err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"server": server.Name,
+			"error":  err,
+		}).Error("Failed to auto-suspend server")
+		
+		// Update the action with failure
+		if len(server.RecentActions) > 0 {
+			server.RecentActions[len(server.RecentActions)-1].ErrorMsg = err.Error()
+		}
+	} else {
+		m.logger.WithField("server", server.Name).Info("Successfully initiated auto-suspend")
+		
+		// Update the action with success
+		if len(server.RecentActions) > 0 {
+			server.RecentActions[len(server.RecentActions)-1].Success = true
+		}
+		
+		// Update desired state and save
+		server.DesiredState = models.PowerStateSuspended
+	}
+	
+	// Save server state
+	m.storage.UpdateServer(server)
+	
+	// Record metrics
+	actionResult := "failure"
+	if err == nil {
+		actionResult = "success"
+	}
+	m.recordMetric(server.Name, fmt.Sprintf("auto_suspend_%s", actionResult), 1)
 }

@@ -134,12 +134,20 @@ func (ws *WebServer) setupRoutes() {
 
 	// API routes (protected)
 	api := ws.router.PathPrefix("/api").Subrouter()
+	
+	// Apply authentication middleware to API routes
+	api.Use(ws.authMiddleware.RequireAuth)
+	
 	api.HandleFunc("/servers", ws.handleGetServers).Methods("GET")
 	api.HandleFunc("/servers/{id}/wake", ws.handleWakeServer).Methods("POST")
 	api.HandleFunc("/servers/{id}/suspend", ws.handleSuspendServer).Methods("POST")
 	api.HandleFunc("/servers/{id}/shutdown", ws.handleShutdownServer).Methods("POST")  // New: Clean shutdown
 	api.HandleFunc("/servers/{id}/stop", ws.handleStopServer).Methods("POST")          // New: Force stop (VMs only)
 	api.HandleFunc("/servers/{id}", ws.handleGetServer).Methods("GET")
+	
+	// Power options API routes (protected)
+	api.HandleFunc("/servers/{id}/power-options", ws.handleGetPowerOptions).Methods("GET")
+	api.HandleFunc("/servers/{id}/power-options", ws.handleSetPowerOptions).Methods("POST", "PUT")
 	
 	// Metrics API routes (protected)
 	api.HandleFunc("/metrics", ws.handleGetMetrics).Methods("GET")
@@ -162,14 +170,18 @@ func (ws *WebServer) setupRoutes() {
 	auth.HandleFunc("/users/{username}", ws.handleDeleteUser).Methods("DELETE")
 
 	// WebSocket endpoint (protected)
-	ws.router.HandleFunc("/ws", ws.handleWebSocket)
+	wsProtected := ws.router.NewRoute().Subrouter()
+	wsProtected.Use(ws.authMiddleware.RequireAuth)
+	wsProtected.HandleFunc("/ws", ws.handleWebSocket)
 
 	// User management page (protected - legacy routes for backward compatibility)
-	ws.router.HandleFunc("/users", ws.handleUsersPage).Methods("GET")
-	ws.router.HandleFunc("/change-password", ws.handleChangePasswordPage).Methods("GET")
+	protected := ws.router.NewRoute().Subrouter()
+	protected.Use(ws.authMiddleware.RequireAuth)
+	protected.HandleFunc("/users", ws.handleUsersPage).Methods("GET")
+	protected.HandleFunc("/change-password", ws.handleChangePasswordPage).Methods("GET")
 
 	// Main page (protected) - serve Vue.js app if available, otherwise legacy
-	ws.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	protected.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if ws.vueAppExists() {
 			ws.handleVueApp(w, r)
 		} else {
@@ -178,7 +190,7 @@ func (ws *WebServer) setupRoutes() {
 	}).Methods("GET")
 
 	// SPA routing - catch all routes and serve Vue.js app (for client-side routing)
-	ws.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	protected.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only serve Vue app for routes that look like SPA routes
 		// Skip API routes, WebSocket, auth routes, and asset requests
 		path := r.URL.Path
@@ -205,7 +217,6 @@ func (ws *WebServer) setupRoutes() {
 	// Add middleware
 	ws.router.Use(ws.loggingMiddleware)
 	ws.router.Use(ws.corsMiddleware)
-	ws.router.Use(ws.authMiddleware.RequireAuth)
 }
 
 // handleMonitorUpdates forwards monitor updates to WebSocket clients

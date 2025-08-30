@@ -57,4 +57,17 @@ export const metricsApi = {
   }
 }
 
+// Power Options API
+export const powerOptionsApi = {
+  async getPowerOptions(serverId) {
+    const response = await api.get(`/servers/${serverId}/power-options`)
+    return response.data
+  },
+
+  async setPowerOptions(serverId, options) {
+    const response = await api.post(`/servers/${serverId}/power-options`, options)
+    return response.data
+  }
+}
+
 export default api

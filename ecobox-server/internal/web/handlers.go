@@ -627,3 +627,198 @@ func (ws *WebServer) convertSummaryToDataPoints(summaries []metrics.Summary) []M
 	
 	return dataPoints
 }
+
+// handleGetPowerOptions returns the power options for a specific server
+func (ws *WebServer) handleGetPowerOptions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverID := vars["id"]
+
+	server, err := ws.storage.GetServer(serverID)
+	if err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Server not found: %s", serverID),
+		}
+		ws.writeJSONResponse(w, http.StatusNotFound, response)
+		return
+	}
+
+	// Ensure power options are initialized
+	server.EnsurePowerOptions()
+
+	response := APIResponse{
+		Success: true,
+		Data:    server.PowerOptions,
+	}
+
+	ws.writeJSONResponse(w, http.StatusOK, response)
+}
+
+// PowerOptionsRequest represents the request body for updating power options
+type PowerOptionsRequest struct {
+	SuspendMethod  string              `json:"suspend_method"`
+	AllowShutdown  bool                `json:"allow_shutdown"`
+	AllowRestart   bool                `json:"allow_restart"`
+	WakeTimes      []WakeTimeRequest   `json:"wake_times"`
+	UseCpuSuspend  bool                `json:"use_cpu_suspend"`
+	CpuSuspend     int                 `json:"cpu_suspend"`
+	UseMemSuspend  bool                `json:"use_mem_suspend"`
+	MemSuspend     int                 `json:"mem_suspend"`
+	UseLoadSuspend bool                `json:"use_load_suspend"`
+	LoadSuspend    int                 `json:"load_suspend"`
+	UseNetSuspend  bool                `json:"use_net_suspend"`
+	NetSuspend     int                 `json:"net_suspend"`
+}
+
+// WakeTimeRequest represents a wake time in the API request
+type WakeTimeRequest struct {
+	Time       string `json:"time"`         // Time in HH:MM format
+	DaysOfWeek []int  `json:"days_of_week"` // Days as integers (0=Sunday, 1=Monday, etc.)
+}
+
+// handleSetPowerOptions updates the power options for a specific server
+func (ws *WebServer) handleSetPowerOptions(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverID := vars["id"]
+
+	server, err := ws.storage.GetServer(serverID)
+	if err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Server not found: %s", serverID),
+		}
+		ws.writeJSONResponse(w, http.StatusNotFound, response)
+		return
+	}
+
+	// Parse the request body
+	var req PowerOptionsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Invalid JSON: %v", err),
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	// Validate suspend method
+	suspendMethod := models.SuspendMethod(req.SuspendMethod)
+	if suspendMethod != models.SuspendMethodNone && suspendMethod != models.SuspendMethodSuspend {
+		response := APIResponse{
+			Success: false,
+			Message: fmt.Sprintf("Invalid suspend method: %s. Valid options: none, suspend", req.SuspendMethod),
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	// Validate thresholds
+	if req.CpuSuspend < 0 || req.CpuSuspend > 100 {
+		response := APIResponse{
+			Success: false,
+			Message: "CPU suspend threshold must be between 0 and 100",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	if req.MemSuspend < 0 || req.MemSuspend > 100 {
+		response := APIResponse{
+			Success: false,
+			Message: "Memory suspend threshold must be between 0 and 100",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	if req.LoadSuspend < 0 {
+		response := APIResponse{
+			Success: false,
+			Message: "Load suspend threshold must be non-negative",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	if req.NetSuspend < 0 {
+		response := APIResponse{
+			Success: false,
+			Message: "Network suspend threshold must be non-negative",
+		}
+		ws.writeJSONResponse(w, http.StatusBadRequest, response)
+		return
+	}
+
+	// Convert wake times
+	wakeTimes := make([]models.WakeTime, len(req.WakeTimes))
+	for i, wt := range req.WakeTimes {
+		// Parse time string (HH:MM format)
+		parsedTime, err := time.Parse("15:04", wt.Time)
+		if err != nil {
+			response := APIResponse{
+				Success: false,
+				Message: fmt.Sprintf("Invalid time format for wake time %d: %s. Expected HH:MM", i, wt.Time),
+			}
+			ws.writeJSONResponse(w, http.StatusBadRequest, response)
+			return
+		}
+
+		// Validate days of week
+		daysOfWeek := make([]models.DayOfWeek, len(wt.DaysOfWeek))
+		for j, day := range wt.DaysOfWeek {
+			if day < 0 || day > 6 {
+				response := APIResponse{
+					Success: false,
+					Message: fmt.Sprintf("Invalid day of week: %d. Must be 0-6 (Sunday=0)", day),
+				}
+				ws.writeJSONResponse(w, http.StatusBadRequest, response)
+				return
+			}
+			daysOfWeek[j] = models.DayOfWeek(day)
+		}
+
+		wakeTimes[i] = models.WakeTime{
+			Time:       parsedTime,
+			DaysOfWeek: daysOfWeek,
+		}
+	}
+
+	// Ensure power options exist
+	server.EnsurePowerOptions()
+
+	// Update power options
+	server.PowerOptions.SuspendMethod = suspendMethod
+	server.PowerOptions.AllowShutdown = req.AllowShutdown
+	server.PowerOptions.AllowRestart = req.AllowRestart
+	server.PowerOptions.WakeTimes = wakeTimes
+	server.PowerOptions.UseCpuSuspend = req.UseCpuSuspend
+	server.PowerOptions.CpuSuspend = req.CpuSuspend
+	server.PowerOptions.UseMemSuspend = req.UseMemSuspend
+	server.PowerOptions.MemSuspend = req.MemSuspend
+	server.PowerOptions.UseLoadSuspend = req.UseLoadSuspend
+	server.PowerOptions.LoadSuspend = req.LoadSuspend
+	server.PowerOptions.UseNetSuspend = req.UseNetSuspend
+	server.PowerOptions.NetSuspend = req.NetSuspend
+
+	// Save the server
+	if err := ws.storage.UpdateServer(server); err != nil {
+		ws.logger.WithError(err).WithField("server", serverID).Error("Failed to save server power options")
+		response := APIResponse{
+			Success: false,
+			Message: "Failed to save power options",
+		}
+		ws.writeJSONResponse(w, http.StatusInternalServerError, response)
+		return
+	}
+
+	ws.logger.WithField("server", server.Name).Info("Updated server power options")
+
+	response := APIResponse{
+		Success: true,
+		Message: "Power options updated successfully",
+		Data:    server.PowerOptions,
+	}
+
+	ws.writeJSONResponse(w, http.StatusOK, response)
+}
